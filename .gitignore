@@ -1,0 +1,33 @@
+# ===== Python =====
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ===== Build / Coverage =====
+.coverage
+coverage.xml
+htmlcov/
+
+# ===== Logs / Temp =====
+*.log
+*.tmp
+*.bak
+
+# ===== Environment =====
+.env
+.env.*
+
+# ===== Qdrant runtime data =====
+qdrant_data/
+
+# ===== OS / IDE =====
+.vscode/
+.idea/
+.DS_Store
+
+.video/
