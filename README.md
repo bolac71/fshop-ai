@@ -43,8 +43,12 @@ RERANKER_MODEL=BAAI/bge-reranker-v2-m3
 LLM_MODEL_NAME=llama-3.3-70b-versatile
 LLM_REWRITE_MODEL=llama-3.1-8b-instant
 SENTIMENT_MODEL_NAME=cardiffnlp/twitter-xlm-roberta-base-sentiment
-VOICE_MODEL_SIZE=small
+VOICE_MODEL_SIZE=medium
 VOICE_LANGUAGE=vi
+VOICE_DEVICE=cpu
+VOICE_COMPUTE_TYPE=int8
+VOICE_BEAM_SIZE=5
+VOICE_VAD_FILTER=true
 ```
 
 Bạn có thể chỉnh model hoặc collection trong [app/core/config.py](app/core/config.py) nếu cần.

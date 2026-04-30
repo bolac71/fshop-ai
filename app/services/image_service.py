@@ -45,9 +45,11 @@ class ImageService:
     def encode_text(self, text: str) -> list:
         """
         Chuyển mô tả văn bản thành vector cùng không gian với ảnh.
-        Đây là chìa khóa của Cross-modal Search.
+        Vietnamese SBERT: Optimized for Vietnamese semantic understanding.
+        Normalize embeddings for cosine similarity in Qdrant.
         """
-        return self.model.encode(text).tolist()
+        embedding = self.model.encode(text, normalize_embeddings=True)
+        return embedding.tolist()
     
     def search_by_text_vector(self, text_query: str, limit=5, filter=None):
         query_vector = self.encode_text(text_query)
@@ -57,7 +59,7 @@ class ImageService:
             query=query_vector,
             limit=limit,
             query_filter=filter,
-            score_threshold=0.2 
+            score_threshold=0.62
         )
         return search_results.points
 

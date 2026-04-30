@@ -44,13 +44,18 @@ POSTGRES_CONFIG = {
 QDRANT_URL = _env("QDRANT_URL", "http://localhost:6333")
 
 
+# --- REDIS CONFIG ---
+REDIS_URL = _env("REDIS_URL", "redis://localhost:6379")
+
+
 # --- MODEL NAMES ---
-# Multilingual embedding model performs better for Vietnamese queries.
+# Vietnamese SBERT: Optimized for Vietnamese semantic understanding
+# Better than multilingual for Vietnamese domain-specific queries
 TEXT_EMBEDDING_MODEL = _env(
     "TEXT_EMBEDDING_MODEL",
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "keepitreal/vietnamese-sbert-base",
 )
-TEXT_VECTOR_SIZE = _env_int("TEXT_VECTOR_SIZE", 384)
+TEXT_VECTOR_SIZE = _env_int("TEXT_VECTOR_SIZE", 768)
 RERANKER_MODEL = _env("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 
 MODEL_TYPE_BASELINE = "baseline"
@@ -90,8 +95,20 @@ SENTIMENT_MODEL_NAME = _env(
     "SENTIMENT_MODEL_NAME",
     "cardiffnlp/twitter-xlm-roberta-base-sentiment",
 )
-VOICE_MODEL_SIZE = _env("VOICE_MODEL_SIZE", "small")
-VOICE_LANGUAGE = _env("VOICE_LANGUAGE", "vi")
+VOICE_MODEL_SIZE = _env("VOICE_MODEL_SIZE", "medium")
+VOICE_LANGUAGE = _env("VOICE_LANGUAGE", "vi").strip().lower()
+VOICE_DEVICE = _env("VOICE_DEVICE", "cpu")
+VOICE_COMPUTE_TYPE = _env("VOICE_COMPUTE_TYPE", "int8")
+VOICE_BEAM_SIZE = _env_int("VOICE_BEAM_SIZE", 5)
+VOICE_VAD_FILTER = _env("VOICE_VAD_FILTER", "true").strip().lower() in {"1", "true", "yes", "on"}
+VOICE_INITIAL_PROMPT = _env(
+    "VOICE_INITIAL_PROMPT",
+    (
+        "Tim kiem san pham thoi trang bang tieng Viet. "
+        "Vi du: toi muon mua vay, ao so mi, quan jean, ao khoac, "
+        "giay, tui xach, mau trang, mau den, nam, nu."
+    ),
+)
 
 
 # --- COLLECTION NAMES ---
@@ -101,4 +118,8 @@ COLLECTION_POLICIES = _env("COLLECTION_POLICIES", "fashion_policies")
 
 
 # --- SETTINGS ---
+# Cosine similarity thresholds for vector search:
+# - Image search: 0.65 (high precision, reduce false positives)
+# - Text search (voice): 0.62 (optimized for Vietnamese SBERT)
+# - Personalized search: 0.6 (user profile based)
 SEARCH_THRESHOLD = _env_float("SEARCH_THRESHOLD", 0.65)

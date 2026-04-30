@@ -11,6 +11,7 @@ langchain-groq
 langchain-ollama
 
 qdrant-client
+redis
 psycopg2-binary
 python-dotenv
 python-multipart
@@ -31,5 +32,3 @@ faster-whisper
 onnxruntime
 rembg
 
-gradio_client
-streamlit

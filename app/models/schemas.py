@@ -72,6 +72,45 @@ class ImageSearchResult(BaseModel):
     score: float
     image_url: str
 
+
+class VoiceAsrMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    language: str = "unknown"
+    language_probability: float = 0.0
+    avg_logprob: float = 0.0
+    no_speech_probability: float = 0.0
+    confidence: float = 0.0
+    model: str = ""
+    device: str = ""
+    compute_type: str = ""
+
+
+class VoiceSearchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    transcribed_text: str
+    products: List[ImageSearchResult]
+    normalized_query: str = ""
+    rewritten_query: str = ""
+    intent: str = "product_search"
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    asr_confidence: float = 0.0
+    asr: VoiceAsrMetadata = Field(default_factory=VoiceAsrMetadata)
+    latency_ms: int = 0
+    search_debug: Optional[Dict[str, Any]] = None
+
+
+class VoiceTranscriptionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    transcribed_text: str
+    normalized_query: str = ""
+    rewritten_query: str = ""
+    intent: str = "product_search"
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    asr_confidence: float = 0.0
+    asr: VoiceAsrMetadata = Field(default_factory=VoiceAsrMetadata)
+    latency_ms: int = 0
+    search_debug: Optional[Dict[str, Any]] = None
+
 # --- VECTOR OPS MODELS ---
 class IndexImageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -113,39 +152,3 @@ class ProductDeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     product_id: int
 
-# --- VIRTUAL TRY-ON MODELS (IDM-VTON) ---
-class VirtualTryonRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    """Request model for virtual try-on endpoint (IDM-VTON)"""
-    category: str = "upper_body"  # upper_body, lower_body, dress
-    garment_des: str = ""  # Garment description (optional)
-    seed: int = 42  # Random seed for reproducibility
-    steps: int = 30  # Inference steps (20-50)
-    crop: bool = False  # Whether to crop images
-    force_dc: bool = False  # Force DC optimization
-    mask_only: bool = False  # Return only mask
-    resize: bool = True  # Whether to resize image for optimal processing
-    max_dimension: int = 768  # Max width/height for resizing
-
-class VirtualTryonResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    """Response model for virtual try-on endpoint"""
-    success: bool
-    message: str
-    image_base64: Optional[str] = None  # Base64 encoded result image
-    category: str
-    seed: int
-    processing_time: Optional[float] = None  # Processing time in seconds
-
-class VirtualTryonBatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    """Request model for batch virtual try-on"""
-    garments: List[dict]  # List of garments with image bytes and categories
-
-class VirtualTryonBatchResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    """Response model for batch virtual try-on"""
-    success: bool
-    message: str
-    results: List[VirtualTryonResponse]
-    total_time: Optional[float] = None
