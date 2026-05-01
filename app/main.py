@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form
 from fastapi.middleware.cors import CORSMiddleware
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 import uvicorn
 
 from app.core.config import QDRANT_URL
@@ -138,17 +139,19 @@ async def transcribe_voice(file: UploadFile = File(...)):
 async def search_by_image(
     file: UploadFile = File(...),
     top_k: int = Query(default=5, ge=1, le=30),
+    top_k_form: int | None = Form(default=None, alias="top_k"),
 ):
     print(f"📸 Received image search: {file.filename}")
     if not image_service:
         raise HTTPException(status_code=503, detail="Image Service not initialized")
         
     try:
+        effective_top_k = top_k_form if top_k_form is not None else top_k
         content = await file.read()
-        candidate_limit = max(top_k * 8, top_k)
+        candidate_limit = max(effective_top_k * 8, effective_top_k)
         points = image_service.search_by_image(
             content,
-            limit=top_k,
+            limit=effective_top_k,
             candidate_limit=candidate_limit,
         )
         
@@ -163,9 +166,20 @@ async def search_by_image(
                     image_url=hit.payload.get("image_url", "")
                 ))
                 seen_ids.add(pid)
-            if len(results) >= top_k:
+            if len(results) >= effective_top_k:
                 break
         return results
+    except UnexpectedResponse as e:
+        message = str(e)
+        if "doesn't exist" in message:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Image collection is not ready in Qdrant. "
+                    "Run sync script: python data_scripts/sync_catalog_qdrant.py --mode image --recreate"
+                ),
+            )
+        raise HTTPException(status_code=503, detail="Qdrant is unavailable")
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail="Image processing failed")
@@ -255,7 +269,7 @@ async def delete_vectors(req: DeleteImageRequest):
 async def recommend_profile_based(request: RecommendRequest):
     if not image_service: return {"product_ids": []}
     try:
-        hits = image_service.recommend_by_profile(request.interactions)
+        hits = image_service.recommend_by_profile(request.interactions, request.limit)
         product_ids = []
         seen = set()
         for hit in hits:

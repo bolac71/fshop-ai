@@ -141,9 +141,17 @@ class InteractionItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     image_id: int  
     days_ago: float
+    score: float = 1.0
+    category_id: Optional[int] = None
+    brand_id: Optional[int] = None
+    color_id: Optional[int] = None
+    size_id: Optional[int] = None
+
 class RecommendRequest(BaseModel):
+
     model_config = ConfigDict(extra="forbid")
     interactions: List[InteractionItem] 
+    limit: int = 10
 
 class ProductSyncRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")

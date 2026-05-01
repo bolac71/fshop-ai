@@ -7,4 +7,7 @@ services:
       - "6334:6334"
     restart: always
     volumes:
-      - ./qdrant_data:/qdrant/storage
+      - fshop_qdrant_data:/qdrant/storage
+
+volumes:
+  fshop_qdrant_data:

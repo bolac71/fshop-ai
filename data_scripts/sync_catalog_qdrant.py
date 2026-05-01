@@ -126,10 +126,14 @@ SELECT
     pi.public_id,
     p.name AS product_name,
     p.price AS product_price,
+    b.id AS brand_id,
     b.name AS brand_name,
+    c.id AS category_id,
     c.name AS category_name,
     NULL::int AS variant_id,
+    NULL::int AS color_id,
     ''::text AS color_name,
+    NULL::int AS size_id,
     ''::text AS size_name,
     'product'::text AS source_type
 FROM product_images pi
@@ -149,10 +153,14 @@ SELECT
     pv.public_id,
     p.name AS product_name,
     p.price AS product_price,
+    b.id AS brand_id,
     b.name AS brand_name,
+    c.id AS category_id,
     c.name AS category_name,
     pv.id AS variant_id,
+    pv.color_id AS color_id,
     COALESCE(co.name, '') AS color_name,
+    pv.size_id AS size_id,
     COALESCE(sz.name, '') AS size_name,
     'variant'::text AS source_type
 FROM product_variants pv
@@ -164,6 +172,7 @@ LEFT JOIN sizes sz ON sz.id = pv.size_id
 WHERE p.is_active = TRUE
   AND pv.is_active = TRUE
   AND pv.image_url IS NOT NULL;
+
 """
 
 
@@ -463,12 +472,16 @@ def sync_product_images(
         public_id = row[3] or ""
         product_name = row[4] or ""
         product_price = float(row[5]) if row[5] is not None else 0.0
-        brand_name = row[6] or ""
-        category_name = row[7] or ""
-        variant_id = int(row[8]) if row[8] is not None else None
-        color_name = row[9] or ""
-        size_name = row[10] or ""
-        source_type = row[11] or "product"
+        brand_id = int(row[6]) if row[6] is not None else None
+        brand_name = row[7] or ""
+        category_id = int(row[8]) if row[8] is not None else None
+        category_name = row[9] or ""
+        variant_id = int(row[10]) if row[10] is not None else None
+        color_id = int(row[11]) if row[11] is not None else None
+        color_name = row[12] or ""
+        size_id = int(row[13]) if row[13] is not None else None
+        size_name = row[14] or ""
+        source_type = row[15] or "product"
 
         if not image_url:
             skipped += 1
@@ -495,11 +508,16 @@ def sync_product_images(
                 "public_id": public_id,
                 "product_name": product_name,
                 "product_price": product_price,
+                "brand_id": brand_id,
                 "brand_name": brand_name,
+                "category_id": category_id,
                 "category_name": category_name,
+                "color_id": color_id,
                 "color_name": color_name,
+                "size_id": size_id,
                 "size_name": size_name,
             }
+
 
             point_buffer.append(models.PointStruct(id=point_id, vector=vector, payload=payload))
             seen_point_ids.add(point_id)
