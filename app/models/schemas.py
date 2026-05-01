@@ -1,19 +1,32 @@
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Any, Dict, List, Optional, Literal
 
-class ModerationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    text: str
-    context: Optional[str] = "product_review"
+# --- MODERATION V2 MODELS ---
+class ModerationLabel(BaseModel):
+    label: str   # "toxic" | "spam" | "hate_speech" | "nsfw" | "off_topic"
+    score: float
 
-class ModerationResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+
+class ModerationV2Request(BaseModel):
     text: str
-    is_safe: bool          
-    label: str            
-    confidence: float    
-    status: str           
-    processing_mode: str   
+    content_type: str = "post_comment"  # "review" | "post_comment" | "livestream_comment"
+    content_id: Optional[int] = None
+    user_id: Optional[int] = None
+
+
+class ModerationV2Response(BaseModel):
+    content_id: Optional[int]
+    content_type: str
+    rule_score: float
+    ml_scores: List[ModerationLabel]
+    final_score: float
+    decision: str        # "approved" | "flagged"
+    priority: str        # "NORMAL" | "HIGH"
+    confidence: float
+    processing_ms: int
+    signals: Dict[str, Any]
+    matched_patterns: List[str]
+
 
 # --- CHAT MODELS ---
 class ChatMessage(BaseModel):

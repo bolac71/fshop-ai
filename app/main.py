@@ -5,18 +5,22 @@ from qdrant_client import QdrantClient
 import uvicorn
 
 from app.core.config import QDRANT_URL
+import time
+
 from app.models.schemas import (
     ChatRequest, ChatResponse, ImageSearchResult, VoiceSearchResponse,
     VoiceTranscriptionResponse,
-    IndexImageRequest, DeleteImageRequest, RecommendRequest, 
+    IndexImageRequest, DeleteImageRequest, RecommendRequest,
     ProductSyncRequest, ProductDeleteRequest,
-    ModerationRequest, ModerationResponse,
+    ModerationV2Request, ModerationV2Response,
 )
 from app.services.image_service import ImageService
 from app.services.rag_service import RagService
 from app.services.voice_service import VoiceService
 from app.services.catalog_search_service import CatalogSearchService
-from app.services.sentiment_service import SentimentService
+from app.services.text_preprocessor import TextPreprocessor
+from app.services.phobert_service import PhoBERTModerationService
+from app.services.moderation_engine import ModerationEngine
 
 # --- GLOBAL VARIABLES ---
 qdrant_client = None
@@ -24,19 +28,21 @@ image_service = None
 rag_service = None
 voice_service = None
 catalog_search_service = None
-sentiment_service = None
+text_preprocessor = TextPreprocessor()
+phobert_service = PhoBERTModerationService()
+moderation_engine = ModerationEngine()
 
 # --- LIFESPAN MANAGER ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Starting Fashion AI Service (Lifespan)...")
     
-    global qdrant_client, image_service, rag_service, voice_service, catalog_search_service, sentiment_service
-    
+    global qdrant_client, image_service, rag_service, voice_service, catalog_search_service
+
     try:
         # Init Qdrant
         qdrant_client = QdrantClient(url=QDRANT_URL)
-        
+
         # Init Services
         image_service = ImageService(qdrant_client)
         rag_service = RagService(qdrant_client)
@@ -46,10 +52,7 @@ async def lifespan(app: FastAPI):
             image_service=image_service,
         )
         voice_service = VoiceService()
-        
-        # Init Sentiment Service
-        sentiment_service = SentimentService()
-        
+
         print("✅ All Services Initialized Successfully!")
         
     except Exception as e:
@@ -181,63 +184,49 @@ async def ask_fashion_ai(request: ChatRequest):
     )
     return ChatResponse(**result)
 
-@app.post("/moderate/content", response_model=ModerationResponse)
-async def moderate_content(req: ModerationRequest):
+
+@app.post("/moderate/v2", response_model=ModerationV2Response)
+async def moderate_v2(req: ModerationV2Request):
     """
-    API Kiểm duyệt nội dung Hybrid (Local + LLM)
+    Full moderation pipeline: text preprocessing → rule scoring → PhoBERT ML → decision engine.
+    Returns soft-flag decision; the calling backend is responsible for persisting the result.
     """
-    if sentiment_service is None:
-        print("❌ CRITICAL: SentimentService is None inside endpoint!")
-        raise HTTPException(status_code=503, detail="Sentiment Service is not initialized yet.")
+    start_ms = int(time.time() * 1000)
 
     text = req.text.strip()
     if not text:
-        return ModerationResponse(
-            text=text, is_safe=True, label="NEUTRAL", 
-            confidence=1.0, status="approved", processing_mode="none"
+        return ModerationV2Response(
+            content_id=req.content_id,
+            content_type=req.content_type,
+            rule_score=0.0,
+            ml_scores=[],
+            final_score=0.0,
+            decision="approved",
+            priority="NORMAL",
+            confidence=1.0,
+            processing_ms=0,
+            signals={},
+            matched_patterns=[],
         )
 
-    # BƯỚC 1: Fast Check (Local multilingual model + keyword)
-    analysis = sentiment_service.analyze(text)
-    
-    final_label = analysis["label"]
-    confidence = analysis["score"]
-    is_toxic = analysis["is_toxic"]
-    mode = "fast_local"
+    processed = text_preprocessor.preprocess(text)
+    ml_labels = phobert_service.predict(processed.normalized)
+    decision = moderation_engine.decide(processed.rule_score, ml_labels)
 
-    print(f"🧐 Local Analysis: '{text}' -> {final_label} ({confidence:.2f}) | Toxic: {is_toxic}")
-
-    # BƯỚC 2: Deep Check (LLM) nếu cần
-    if analysis["requires_llm_check"]:
-        print(f"🤔 Ambiguous content, invoking LLM: '{text}'")
-        if rag_service:
-            llm_result = rag_service.moderate_content(text)
-            
-            final_label = llm_result["sentiment"]
-            is_toxic = llm_result["is_toxic"]
-            if is_toxic:
-                final_label = "NEGATIVE"
-            confidence = 0.95 
-            mode = "deep_llm"
-            print(f"🤖 LLM Verdict: {final_label} (Toxic: {is_toxic})")
-        else:
-            print("⚠️ RAG Service missing, skipping LLM check")
-
-    # BƯỚC 3: Quyết định Status
-    status = "approved"
-    if is_toxic:
-        status = "rejected"
-    elif final_label == "NEGATIVE":
-        status = "approved" 
-    
-    return ModerationResponse(
-        text=text,
-        is_safe=not is_toxic,
-        label=final_label,
-        confidence=confidence,
-        status=status,
-        processing_mode=mode
+    return ModerationV2Response(
+        content_id=req.content_id,
+        content_type=req.content_type,
+        rule_score=processed.rule_score,
+        ml_scores=ml_labels,
+        final_score=decision.final_score,
+        decision=decision.decision,
+        priority=decision.priority,
+        confidence=decision.confidence,
+        processing_ms=int(time.time() * 1000) - start_ms,
+        signals=processed.signals,
+        matched_patterns=processed.matched_patterns,
     )
+
 
 # --- ADMIN ENDPOINTS ---
 @app.post("/vectors/upsert")

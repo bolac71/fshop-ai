@@ -90,11 +90,15 @@ LLM_MODEL_NAME = _env("LLM_MODEL_NAME", "llama-3.3-70b-versatile")
 LLM_REWRITE_MODEL = _env("LLM_REWRITE_MODEL", "llama-3.1-8b-instant")
 
 
-# --- SENTIMENT / VOICE ---
-SENTIMENT_MODEL_NAME = _env(
-    "SENTIMENT_MODEL_NAME",
-    "cardiffnlp/twitter-xlm-roberta-base-sentiment",
-)
+# --- MODERATION ---
+# Set to your HuggingFace Hub repo ID after training (e.g. "username/fshop-phobert-moderation")
+PHOBERT_MODERATION_MODEL = _env("PHOBERT_MODERATION_MODEL", "")
+MODERATION_RULE_WEIGHT = _env("MODERATION_RULE_WEIGHT", "0.30")
+MODERATION_FLAG_THRESHOLD = _env("MODERATION_FLAG_THRESHOLD", "0.35")
+MODERATION_HIGH_PRIORITY_THRESHOLD = _env("MODERATION_HIGH_PRIORITY_THRESHOLD", "0.70")
+
+
+# --- VOICE ---
 VOICE_MODEL_SIZE = _env("VOICE_MODEL_SIZE", "medium")
 VOICE_LANGUAGE = _env("VOICE_LANGUAGE", "vi").strip().lower()
 VOICE_DEVICE = _env("VOICE_DEVICE", "cpu")
