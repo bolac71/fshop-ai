@@ -230,6 +230,7 @@ class ImageService:
         )
         
         points = search_results.points if hasattr(search_results, 'points') else []
+        print(f"Found {len(points)} candidates for re-ranking based on profile vector.")
         if not points:
             return []
 
@@ -264,6 +265,8 @@ class ImageService:
 
         # Sắp xếp lại theo score mới
         scored_points.sort(key=lambda x: x.score, reverse=True)
-        
+        print(f"Found {len(scored_points)} candidates for re-ranking based on profile vector.")
+        for p in scored_points[:limit]:
+            print(f"Candidate ID: {p.id}, Original Score: {p.score - boost:.4f}, Boost: {boost:.4f}, Final Score: {p.score:.4f}")
         return scored_points[:limit]
 

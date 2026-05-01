@@ -269,10 +269,21 @@ async def delete_vectors(req: DeleteImageRequest):
 async def recommend_profile_based(request: RecommendRequest):
     if not image_service: return {"product_ids": []}
     try:
-        hits = image_service.recommend_by_profile(request.interactions, request.limit)
+        # Request more candidates to guarantee enough unique product_ids after deduplication
+        multiplier = 5
+        request_limit = request.limit * multiplier
+        
+        hits = image_service.recommend_by_profile(request.interactions, request_limit)
+        print(f"🔍 DEBUG: Requested {request_limit} candidates, got {len(hits)} hits")
+        
         product_ids = []
         seen = set()
+        
         for hit in hits:
+            # Early exit: if we already have enough unique products
+            if len(product_ids) >= request.limit:
+                break
+                
             payload = hit.payload 
             if not isinstance(payload, dict) and hasattr(payload, 'dict'):
                  payload = payload.dict()
@@ -281,7 +292,10 @@ async def recommend_profile_based(request: RecommendRequest):
                 if pid and pid not in seen:
                     product_ids.append(pid)
                     seen.add(pid)
-        return {"product_ids": product_ids}
+                
+        print(f"✅ Profile-based recommendation returned {len(product_ids)} unique products (requested {request.limit})")
+        print(f"   Product IDs: {product_ids}")
+        return {"product_ids": product_ids[:request.limit]}
     except Exception as e:
         print(f"Recommendation Error: {e}")
         return {"product_ids": []}
