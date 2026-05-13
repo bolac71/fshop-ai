@@ -121,6 +121,11 @@ COLLECTION_PRODUCT_IMAGE = _env("COLLECTION_PRODUCT_IMAGE", "fashion_images")
 COLLECTION_POLICIES = _env("COLLECTION_POLICIES", "fashion_policies")
 
 
+# --- VIRTUAL TRY-ON ---
+VTON_SPACE_ID = _env("VTON_SPACE_ID", "hysts-duplicates/IDM-VTON")
+HF_TOKEN = _env("HF_TOKEN", "")
+
+
 # --- SETTINGS ---
 # Cosine similarity thresholds for vector search:
 # - Image search: 0.65 (high precision, reduce false positives)

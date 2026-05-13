@@ -1,6 +1,8 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 import uvicorn
@@ -22,6 +24,7 @@ from app.services.catalog_search_service import CatalogSearchService
 from app.services.text_preprocessor import TextPreprocessor
 from app.services.phobert_service import PhoBERTModerationService
 from app.services.moderation_engine import ModerationEngine
+from app.services.vton_service import VtonService
 
 # --- GLOBAL VARIABLES ---
 qdrant_client = None
@@ -32,6 +35,7 @@ catalog_search_service = None
 text_preprocessor = TextPreprocessor()
 phobert_service = PhoBERTModerationService()
 moderation_engine = ModerationEngine()
+vton_service = VtonService()
 
 # --- LIFESPAN MANAGER ---
 @asynccontextmanager
@@ -315,6 +319,35 @@ async def remove_product_endpoint(req: ProductDeleteRequest):
         return {"status": "success", "message": f"Product {req.product_id} removed."}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to remove product")
+
+@app.post("/tryon")
+async def virtual_tryon(
+    person_image: UploadFile = File(...),
+    garment_image: UploadFile = File(...),
+    garment_desc: str = Form(default="A nice shirt"),
+    denoise_steps: int = Form(default=30),
+    seed: int = Form(default=42),
+):
+    print(f"👗 VTO request: garment_desc={garment_desc!r}, steps={denoise_steps}, seed={seed}")
+    try:
+        person_bytes = await person_image.read()
+        garment_bytes = await garment_image.read()
+
+        result_bytes = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: vton_service.tryon(
+                person_bytes,
+                garment_bytes,
+                garment_desc,
+                denoise_steps,
+                seed,
+            ),
+        )
+        return Response(content=result_bytes, media_type="image/jpeg")
+    except Exception as e:
+        print(f"❌ VTO error: {e}")
+        raise HTTPException(status_code=500, detail=f"Virtual try-on failed: {e}")
+
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8001, reload=False)
