@@ -1,21 +1,20 @@
 # FShop AI Service
 
-Dịch vụ AI cho FShop, gồm các tính năng chính:
+Dịch vụ AI cho hệ thống FShop, gồm các nhóm chức năng chính:
 
-- Chatbot RAG (sản phẩm và chính sách)
-- Tìm kiếm sản phẩm bằng ảnh và giọng nói
-- Kiểm duyệt nội dung
-- Virtual try-on
+- Chatbot RAG cho tư vấn sản phẩm và chính sách cửa hàng.
+- Tìm kiếm sản phẩm bằng hình ảnh và giọng nói.
+- Gợi ý sản phẩm dựa trên hồ sơ tương tác.
+- Kiểm duyệt nội dung cho bài viết, đánh giá, bình luận và livestream.
+- Virtual try-on thông qua Hugging Face Space.
 
-## 1. Yêu cầu
+## Yêu Cầu
 
-- Python 3.10 hoặc 3.11
-- Docker Desktop (để chạy Qdrant)
-- PostgreSQL đã có dữ liệu từ backend FShop
+- Python 3.10 hoặc 3.11.
+- Docker Desktop để chạy Qdrant.
+- PostgreSQL đã có dữ liệu từ backend FShop.
 
-## 2. Cài đặt môi trường
-
-Chạy tại thư mục gốc dự án:
+## Cài Đặt
 
 ```powershell
 python -m venv venv
@@ -24,9 +23,9 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## 3. Cấu hình biến môi trường
+## Cấu Hình
 
-Tạo hoặc cập nhật file [.env](.env) với tối thiểu các biến sau:
+Tạo hoặc cập nhật file `.env` tại thư mục gốc dự án:
 
 ```env
 QDRANT_URL=http://localhost:6333
@@ -37,12 +36,11 @@ DB_HOST=localhost
 DB_PORT=5432
 GROQ_API_KEY=your_key
 HF_TOKEN=your_key
-HF_HUB_DISABLE_SYMLINKS_WARNING=1
-TEXT_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+TEXT_EMBEDDING_MODEL=keepitreal/vietnamese-sbert-base
+TEXT_VECTOR_SIZE=768
 RERANKER_MODEL=BAAI/bge-reranker-v2-m3
 LLM_MODEL_NAME=llama-3.3-70b-versatile
 LLM_REWRITE_MODEL=llama-3.1-8b-instant
-SENTIMENT_MODEL_NAME=cardiffnlp/twitter-xlm-roberta-base-sentiment
 VOICE_MODEL_SIZE=medium
 VOICE_LANGUAGE=vi
 VOICE_DEVICE=cpu
@@ -51,54 +49,60 @@ VOICE_BEAM_SIZE=5
 VOICE_VAD_FILTER=true
 ```
 
-Bạn có thể chỉnh model hoặc collection trong [app/core/config.py](app/core/config.py) nếu cần.
+Các biến cấu hình chính được khai báo trong `app/core/config.py`.
 
-## 4. Chạy Qdrant
+## Chạy Qdrant
 
 ```powershell
 docker compose -f docker-compose.yaml up -d qdrant
 ```
 
-Kiểm tra nhanh: [http://localhost:6333/collections](http://localhost:6333/collections)
+Kiểm tra nhanh:
 
-## 5. Đồng bộ dữ liệu vào Qdrant
+```text
+http://localhost:6333/collections
+```
 
-Catalog (Product + Variant + Image):
+## Đồng Bộ Dữ Liệu Vào Qdrant
+
+Đồng bộ toàn bộ catalog:
 
 ```powershell
 python data_scripts/sync_catalog_qdrant.py --mode all --recreate
 ```
 
-Chỉ text:
+Chỉ đồng bộ text:
 
 ```powershell
 python data_scripts/sync_catalog_qdrant.py --mode text --recreate
 ```
 
-Chỉ image:
+Chỉ đồng bộ image:
 
 ```powershell
 python data_scripts/sync_catalog_qdrant.py --mode image --recreate
 ```
 
-Policy (script riêng):
+Đồng bộ policy:
 
 ```powershell
 python data_scripts/sync_policy.py
 ```
 
-## 6. Chạy API (dev tự reload)
+## Chạy API
 
 ```powershell
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+API docs:
 
-## 7. Ghi chú
+```text
+http://127.0.0.1:8000/docs
+```
 
-- Script sync catalog chính: [data_scripts/sync_catalog_qdrant.py](data_scripts/sync_catalog_qdrant.py)
-- Script sync policy: [data_scripts/sync_policy.py](data_scripts/sync_policy.py)
-- Nếu lỗi kết nối Qdrant, kiểm tra container đã chạy và cổng `6333` đang mở.
-- Nếu đổi `TEXT_EMBEDDING_MODEL`, cần chạy lại sync text (`--mode text --recreate`) để vector trong Qdrant khớp model mới.
-- Trên Windows, cảnh báo symlink của Hugging Face là phổ biến và không làm hỏng service; có thể tắt bằng `HF_HUB_DISABLE_SYMLINKS_WARNING=1` hoặc bật Developer Mode để cache hiệu quả hơn.
+## Ghi Chú
+
+- Nếu đổi `TEXT_EMBEDDING_MODEL` hoặc `TEXT_VECTOR_SIZE`, cần sync lại text vector.
+- Nếu đổi image model hoặc vector size, cần sync lại image vector.
+- Trên Windows, cảnh báo symlink của Hugging Face là bình thường. Có thể đặt `HF_HUB_DISABLE_SYMLINKS_WARNING=1` hoặc bật Developer Mode.

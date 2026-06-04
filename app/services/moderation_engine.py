@@ -1,19 +1,27 @@
-import os
 from dataclasses import dataclass
 
-from app.models.schemas import ModerationLabel
+from app.core.config import (
+    MODERATION_FLAG_THRESHOLD,
+    MODERATION_HIGH_PRIORITY_THRESHOLD,
+    MODERATION_RULE_WEIGHT,
+)
+from app.models.schemas import (
+    ModerationDecisionValue,
+    ModerationLabel,
+    ModerationPriorityValue,
+)
 
 
-RULE_WEIGHT = float(os.getenv("MODERATION_RULE_WEIGHT", "0.30"))
+RULE_WEIGHT = MODERATION_RULE_WEIGHT
 ML_WEIGHT = 1.0 - RULE_WEIGHT
-FLAG_THRESHOLD = float(os.getenv("MODERATION_FLAG_THRESHOLD", "0.35"))
-HIGH_PRIORITY_THRESHOLD = float(os.getenv("MODERATION_HIGH_PRIORITY_THRESHOLD", "0.70"))
+FLAG_THRESHOLD = MODERATION_FLAG_THRESHOLD
+HIGH_PRIORITY_THRESHOLD = MODERATION_HIGH_PRIORITY_THRESHOLD
 
 
 @dataclass
 class ModerationDecision:
-    decision: str    # "approved" | "flagged"
-    priority: str    # "NORMAL" | "HIGH"
+    decision: ModerationDecisionValue
+    priority: ModerationPriorityValue
     final_score: float
     confidence: float
 
@@ -33,7 +41,11 @@ class ModerationEngine:
             ml_score = 0.0
             confidence = 0.5
 
-        final_score = RULE_WEIGHT * rule_score + ML_WEIGHT * ml_score
+        final_score = (
+            RULE_WEIGHT * rule_score + ML_WEIGHT * ml_score
+            if ml_labels
+            else rule_score
+        )
 
         if final_score >= FLAG_THRESHOLD:
             decision = "flagged"
