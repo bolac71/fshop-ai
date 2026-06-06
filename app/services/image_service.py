@@ -104,24 +104,7 @@ class ImageService:
             score_threshold=threshold,
         )
 
-        points = list(search_results.points)
-
-        # Fallback: if threshold is too strict and returns too few points,
-        # retry without threshold so API layer can still build top-k unique products.
-        if len(points) < limit and threshold is not None:
-            fallback_results = self.client.query_points(
-                collection_name=COLLECTION_PRODUCT_IMAGE,
-                query=query_vector,
-                limit=fetch_limit,
-            )
-
-            seen_ids = {p.id for p in points}
-            for point in fallback_results.points:
-                if point.id not in seen_ids:
-                    points.append(point)
-                    seen_ids.add(point.id)
-
-        return points
+        return list(search_results.points)
 
     def _build_point_id(self, image_id: int, source_type: str = "product") -> int:
         if source_type == "variant":

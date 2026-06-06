@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -161,8 +162,34 @@ async def search_by_image(
         
         results = []
         seen_ids = set()
+        top_score = float(points[0].score) if points else 0.0
+        max_score_gap = float(os.getenv("IMAGE_SEARCH_MAX_SCORE_GAP", "0.08"))
+        min_relative_score = max(0.0, top_score - max_score_gap)
+        category_filter_enabled = os.getenv("IMAGE_SEARCH_CATEGORY_FILTER", "true").strip().lower() in {"1", "true", "yes", "on"}
+        product_meta_by_id = {}
+        anchor_category_key = None
+        if category_filter_enabled and rag_service:
+            try:
+                product_meta_by_id = {
+                    int(meta.get("product_id") or 0): meta
+                    for meta in rag_service._get_catalog_index().get("products", [])
+                    if meta.get("product_id")
+                }
+            except Exception as exc:
+                print(f"⚠️ Image category filter unavailable: {exc}")
+
         for hit in points:
+            if top_score > 0 and float(hit.score) < min_relative_score:
+                continue
             pid = hit.payload.get("product_id")
+            meta = product_meta_by_id.get(int(pid or 0)) if product_meta_by_id else None
+            category_key = ""
+            if meta:
+                category_key = rag_service._normalize_text(meta.get("category_name") or meta.get("category") or "")
+                if anchor_category_key is None and category_key:
+                    anchor_category_key = category_key
+                if anchor_category_key and category_key and category_key != anchor_category_key:
+                    continue
             if pid not in seen_ids:
                 results.append(ImageSearchResult(
                     product_id=pid,
