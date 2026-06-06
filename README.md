@@ -36,9 +36,11 @@ DB_HOST=localhost
 DB_PORT=5432
 GROQ_API_KEY=your_key
 HF_TOKEN=your_key
-TEXT_EMBEDDING_MODEL=keepitreal/vietnamese-sbert-base
-TEXT_VECTOR_SIZE=768
+TEXT_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+TEXT_VECTOR_SIZE=384
 RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+AI_ENABLE_RERANK=false
+AI_RERANK_TOP_K=4
 LLM_MODEL_NAME=llama-3.3-70b-versatile
 LLM_REWRITE_MODEL=llama-3.1-8b-instant
 VOICE_MODEL_SIZE=medium
@@ -88,6 +90,14 @@ python data_scripts/sync_catalog_qdrant.py --mode image --recreate
 ```powershell
 python data_scripts/sync_policy.py
 ```
+
+Kiểm tra nhanh retrieval chatbot sau khi đồng bộ catalog/policy:
+
+```powershell
+python data_scripts/evaluate_chat_retrieval.py
+```
+
+Script này kiểm tra các truy vấn danh mục phổ biến như áo thun, áo sơ mi, quần jeans nữ, giày thể thao nam và một case style preference như "cool/ngầu" để đảm bảo top results không bị lệch category hoặc bỏ qua tín hiệu phong cách.
 
 ## Chạy API
 

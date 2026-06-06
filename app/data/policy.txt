@@ -1,46 +1,99 @@
-FSHOP (Fashion Shop) – Thông tin cửa hàng
-1. Giờ mở cửa
+FSHOP (Fashion Shop) - Thông tin chính sách cửa hàng
 
-Cửa hàng mở cửa từ 8:30 sáng đến 10:00 tối, tất cả các ngày trong tuần, bao gồm Chủ nhật và ngày lễ.
+1. Giờ mở cửa và hỗ trợ khách hàng
+
+FShop hỗ trợ khách hàng từ 8:30 sáng đến 10:00 tối, tất cả các ngày trong tuần, bao gồm Chủ nhật và ngày lễ.
+
+Khách hàng có thể liên hệ shop qua hotline 1900-1234 hoặc kênh chat trực tuyến trên website/ứng dụng.
+
+Địa chỉ cửa hàng: 123 đường ABC, Quận 1, Thành phố Hồ Chí Minh, Việt Nam.
 
 2. Chính sách vận chuyển
 
+FShop hỗ trợ giao hàng toàn quốc thông qua đơn vị vận chuyển đối tác.
+
 Miễn phí vận chuyển cho đơn hàng có tổng giá trị từ 500.000 VND trở lên trong khu vực nội thành.
 
-Đơn giao về tỉnh áp dụng phí vận chuyển cố định 30.000 VND.
+Đơn giao về tỉnh/thành khác áp dụng phí vận chuyển cố định 30.000 VND, trừ khi khách hàng có mã giảm giá hoặc chương trình miễn phí vận chuyển.
 
 Thời gian giao hàng dự kiến:
 
-Nội thành: 1–2 ngày
+Nội thành: 1-2 ngày làm việc.
 
-Tỉnh/thành khác: 3–4 ngày
+Tỉnh/thành khác: 3-4 ngày làm việc.
 
-3. Chính sách đổi trả
+Thời gian giao hàng có thể thay đổi trong trường hợp thời tiết xấu, quá tải vận chuyển, ngày lễ hoặc thông tin nhận hàng không chính xác.
 
-Khách hàng được kiểm tra sản phẩm trước khi thanh toán.
+3. Chính sách thanh toán
 
-Hỗ trợ đổi/trả trong vòng 7 ngày kể từ ngày khách nhận hàng.
+FShop hỗ trợ các phương thức thanh toán chính:
+
+Thanh toán khi nhận hàng (COD).
+
+Thanh toán trực tuyến qua MoMo hoặc cổng thanh toán được tích hợp trong hệ thống.
+
+Khách hàng cần kiểm tra kỹ thông tin đơn hàng, số điện thoại, địa chỉ nhận hàng và tổng tiền trước khi xác nhận thanh toán.
+
+Với thanh toán trực tuyến, đơn hàng chỉ được ghi nhận là đã thanh toán khi hệ thống nhận được kết quả thành công từ cổng thanh toán.
+
+Nếu giao dịch trực tuyến thất bại, khách hàng có thể thử thanh toán lại hoặc chuyển sang COD nếu đơn hàng hỗ trợ.
+
+4. Chính sách đổi trả
+
+Khách hàng được kiểm tra sản phẩm trước khi thanh toán đối với đơn COD.
+
+FShop hỗ trợ đổi/trả trong vòng 7 ngày kể từ ngày khách hàng nhận hàng.
 
 Điều kiện đổi/trả:
 
-Sản phẩm phải chưa qua sử dụng, chưa giặt, còn nguyên hiện trạng ban đầu và còn đầy đủ tem mác.
+Sản phẩm chưa qua sử dụng, chưa giặt, chưa cắt tem mác và còn nguyên hiện trạng ban đầu.
 
-Đồ lót và phụ kiện không áp dụng đổi/trả.
+Sản phẩm không bị hư hỏng do lỗi sử dụng, bảo quản sai cách hoặc tác động từ khách hàng.
 
-4. Hướng dẫn chọn size
+Khách hàng cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi/trả khi liên hệ shop.
 
-Size S: Dưới 45kg, chiều cao dưới 1,55m
+Đồ lót, phụ kiện cá nhân và sản phẩm trong chương trình thanh lý có thể không áp dụng đổi/trả, trừ khi sản phẩm bị lỗi từ nhà cung cấp.
 
-Size M: 45kg – 55kg, chiều cao từ 1,55m đến 1,65m
+5. Chính sách hủy đơn hàng
 
-Size L: 55kg – 65kg, chiều cao từ 1,65m đến 1,75m
+Khách hàng có thể hủy đơn khi đơn hàng đang ở trạng thái chờ xác nhận hoặc đang xử lý.
 
-Size XL: 65kg – 75kg, chiều cao từ 1,75m đến 1,80m
+Nếu đơn hàng đã bàn giao cho đơn vị vận chuyển, khách hàng không thể hủy trực tiếp trên hệ thống và cần liên hệ bộ phận hỗ trợ.
 
-Size XXL: Trên 75kg
+Đơn hàng đã thanh toán trực tuyến sẽ được xử lý hoàn tiền sau khi yêu cầu hủy/trả hàng được xác nhận hợp lệ.
 
-5. Thông tin liên hệ
+Thời gian hoàn tiền phụ thuộc vào cổng thanh toán và ngân hàng phát hành, thông thường từ 3-7 ngày làm việc.
 
-Hotline: 1900-1234
+6. Hướng dẫn chọn size
 
-Địa chỉ: 123 đường ABC, Quận 1, Thành phố Hồ Chí Minh, Việt Nam
+Bảng size tham khảo:
+
+Size S: Dưới 45kg, chiều cao dưới 1,55m.
+
+Size M: 45kg - 55kg, chiều cao từ 1,55m đến 1,65m.
+
+Size L: 55kg - 65kg, chiều cao từ 1,65m đến 1,75m.
+
+Size XL: 65kg - 75kg, chiều cao từ 1,75m đến 1,80m.
+
+Size XXL: Trên 75kg.
+
+Bảng size chỉ mang tính tham khảo. Tùy vào form sản phẩm, chất liệu và sở thích mặc ôm/rộng, khách hàng có thể tăng hoặc giảm 1 size.
+
+7. Chính sách bảo mật thông tin
+
+FShop chỉ sử dụng thông tin cá nhân của khách hàng để xử lý đơn hàng, giao hàng, chăm sóc khách hàng và cải thiện trải nghiệm mua sắm.
+
+Thông tin như họ tên, số điện thoại, địa chỉ, lịch sử đơn hàng và phương thức thanh toán được bảo vệ theo quy trình bảo mật của hệ thống.
+
+FShop không chia sẻ thông tin cá nhân của khách hàng cho bên thứ ba ngoài mục đích xử lý đơn hàng, vận chuyển hoặc theo yêu cầu hợp pháp.
+
+8. Chính sách khuyến mãi và mã giảm giá
+
+Mã giảm giá chỉ áp dụng trong thời gian hiệu lực và theo điều kiện của từng chương trình.
+
+Một đơn hàng có thể bị giới hạn số lượng mã giảm giá được sử dụng.
+
+Giá trị giảm giá, điều kiện đơn hàng tối thiểu, danh mục áp dụng và số lượng sử dụng sẽ được hiển thị trên hệ thống.
+
+FShop có quyền từ chối áp dụng mã giảm giá nếu phát hiện hành vi gian lận hoặc sử dụng sai điều kiện chương trình.

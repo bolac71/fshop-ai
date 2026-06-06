@@ -8,6 +8,13 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BASE_DIR.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
+# Local monorepo convenience: the NestJS backend owns the canonical DB config.
+# Load it as a secondary env source so the AI service does not silently query a
+# different local database during order lookup.
+BACKEND_ENV_PATH = PROJECT_ROOT.parent / "fshop-be" / ".env"
+if BACKEND_ENV_PATH.exists():
+    load_dotenv(BACKEND_ENV_PATH, override=False)
+
 
 def _env(name: str, default: str | None = None) -> str:
     value = os.getenv(name, default)
@@ -32,12 +39,15 @@ def _env_float(name: str, default: float) -> float:
 
 # --- DATABASE CONFIG ---
 POSTGRES_CONFIG = {
-    "dbname": _env("DB_NAME", "fshop_db"),
-    "user": _env("DB_USER", "username"),
-    "password": _env("DB_PASSWORD", "123456"),
-    "host": _env("DB_HOST", "localhost"),
-    "port": _env("DB_PORT", "5432"),
+    "dbname": _env("DATABASE_NAME", _env("DB_NAME", "fshop_db")),
+    "user": _env("DATABASE_USER", _env("DB_USER", "username")),
+    "password": _env("DATABASE_PASSWORD", _env("DB_PASSWORD", "123456")),
+    "host": _env("DATABASE_HOST", _env("DB_HOST", "localhost")),
+    "port": _env("DATABASE_PORT", _env("DB_PORT", "5432")),
 }
+
+if _env("DB_USE_SSL", "false").strip().lower() in {"1", "true", "yes", "on"}:
+    POSTGRES_CONFIG["sslmode"] = "require"
 
 
 # --- QDRANT CONFIG ---

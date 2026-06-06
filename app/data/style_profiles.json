@@ -1,0 +1,86 @@
+{
+  "cool_edgy": {
+    "display": "cool/ngầu",
+    "keywords": [
+      "cool",
+      "ngau",
+      "ngau ngau",
+      "ngau loi",
+      "chat",
+      "chat choi",
+      "ca tinh",
+      "streetwear",
+      "manh me",
+      "bu bui"
+    ],
+    "preferred_colors": [
+      "Den",
+      "Xanh navy",
+      "Than chi",
+      "Xam ghi",
+      "Xam",
+      "Xanh duong"
+    ],
+    "reason": "nhóm màu tối và trung tính giúp outfit trông cá tính, gọn và dễ tạo cảm giác mạnh mẽ"
+  },
+  "minimal": {
+    "display": "tối giản",
+    "keywords": [
+      "toi gian",
+      "minimal",
+      "basic",
+      "don gian",
+      "de phoi"
+    ],
+    "preferred_colors": [
+      "Trang",
+      "Den",
+      "Xam",
+      "Xam ghi",
+      "Be",
+      "Kem",
+      "Xanh navy"
+    ],
+    "reason": "các màu trung tính dễ phối với nhiều item và ít bị lỗi thời"
+  },
+  "elegant": {
+    "display": "thanh lịch",
+    "keywords": [
+      "thanh lich",
+      "lich su",
+      "cong so",
+      "sang",
+      "sang trong",
+      "nhe nhang"
+    ],
+    "preferred_colors": [
+      "Trang",
+      "Kem",
+      "Be",
+      "Xanh navy",
+      "Den",
+      "Nau"
+    ],
+    "reason": "các màu trang nhã tạo cảm giác gọn gàng và phù hợp môi trường đi học, đi làm"
+  },
+  "soft_feminine": {
+    "display": "nhẹ nhàng/nữ tính",
+    "keywords": [
+      "nu tinh",
+      "nhe nhang",
+      "de thuong",
+      "pastel",
+      "banh beo",
+      "ngot ngao"
+    ],
+    "preferred_colors": [
+      "Hong",
+      "Hong phan",
+      "Kem",
+      "Trang",
+      "Xanh mint",
+      "Vang kem"
+    ],
+    "reason": "các màu sáng và pastel tạo cảm giác mềm mại, trẻ trung"
+  }
+}
