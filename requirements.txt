@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 gradio_client
+google-genai
 pydantic
 
 langchain

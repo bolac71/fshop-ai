@@ -26,6 +26,7 @@ from app.services.text_preprocessor import TextPreprocessor
 from app.services.phobert_service import PhoBERTModerationService
 from app.services.moderation_engine import ModerationEngine
 from app.services.vton_service import VtonService
+from app.services.gemini_tryon_service import GeminiQuotaExceededError, GeminiTryonService
 
 # --- GLOBAL VARIABLES ---
 qdrant_client = None
@@ -37,6 +38,7 @@ text_preprocessor = TextPreprocessor()
 phobert_service = PhoBERTModerationService()
 moderation_engine = ModerationEngine()
 vton_service = VtonService()
+gemini_tryon_service = GeminiTryonService()
 
 # --- LIFESPAN MANAGER ---
 @asynccontextmanager
@@ -374,6 +376,36 @@ async def virtual_tryon(
     except Exception as e:
         print(f"❌ VTO error: {e}")
         raise HTTPException(status_code=500, detail=f"Virtual try-on failed: {e}")
+
+@app.post("/tryon/gemini-outfit")
+async def gemini_outfit_tryon(
+    person_image: UploadFile = File(...),
+    garment_sheet: UploadFile = File(...),
+    prompt: str = Form(default=""),
+):
+    print(f"Gemini outfit try-on request: prompt={prompt!r}")
+    try:
+        person_bytes = await person_image.read()
+        garment_sheet_bytes = await garment_sheet.read()
+
+        result_bytes = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: gemini_tryon_service.tryon_outfit(
+                person_bytes,
+                garment_sheet_bytes,
+                prompt,
+            ),
+        )
+        return Response(content=result_bytes, media_type="image/jpeg")
+    except ValueError as e:
+        print(f"Gemini config error: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
+    except GeminiQuotaExceededError as e:
+        print(f"Gemini quota error: {e}")
+        raise HTTPException(status_code=429, detail=str(e))
+    except Exception as e:
+        print(f"Gemini outfit try-on error: {e}")
+        raise HTTPException(status_code=500, detail=f"Gemini outfit try-on failed: {e}")
 
 
 if __name__ == "__main__":

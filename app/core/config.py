@@ -134,6 +134,9 @@ COLLECTION_POLICIES = _env("COLLECTION_POLICIES", "fashion_policies")
 # --- VIRTUAL TRY-ON ---
 VTON_SPACE_ID = _env("VTON_SPACE_ID", "hysts-duplicates/IDM-VTON")
 HF_TOKEN = _env("HF_TOKEN", "")
+GEMINI_API_KEY = _env("GEMINI_API_KEY", "")
+VTO_GEMINI_MODEL = _env("VTO_GEMINI_MODEL", "gemini-2.5-flash-image")
+VTO_GEMINI_MAX_PRODUCTS = _env_int("VTO_GEMINI_MAX_PRODUCTS", 3)
 
 
 # --- SETTINGS ---
