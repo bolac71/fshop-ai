@@ -1997,6 +1997,7 @@ class RagService:
                 self._chat_log(f"active_state_match product_id={active_state.active_product_id} -> kept_only_active_match")
 
         final_docs = [docs[idx] for idx in ordered_indices[:max(1, RERANK_TOP_K)]]
+        answer_query = style_context_query if has_style_preference else user_query
         filtered_products = []
         seen_product_ids = set()
         for doc in final_docs:
@@ -2014,13 +2015,17 @@ class RagService:
                     category=str(meta.get("category_name") or meta.get("category") or ""),
                     brand=str(meta.get("brand_name") or meta.get("brand") or ""),
                     category_department=str(meta.get("category_department") or ""),
+                    colors=self._extract_color_names(meta),
+                    sizes=self._extract_size_names(meta),
+                    averageRating=meta.get("averageRating") or meta.get("average_rating"),
+                    reviewCount=meta.get("reviewCount") or meta.get("review_count"),
+                    soldQuantity=meta.get("soldQuantity") or meta.get("sold_quantity"),
                 )
             )
 
         print(f"Re-ranking: {time.time() - t1:.2f}s. Final Docs: {len(final_docs)}")
         self._chat_log(f"final_docs={[self._compact_meta(self._resolve_doc_metadata(doc)) for doc in final_docs]}")
         # Deterministic answer for size/color/style questions when metadata already has fields.
-        answer_query = style_context_query if has_style_preference else user_query
 
         combined_answer = self._build_combined_size_color_answer(answer_query, final_docs)
         if combined_answer:

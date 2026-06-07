@@ -75,6 +75,11 @@ class ProductInfo(BaseModel):
     category: str = ""
     brand: Optional[str] = ""
     category_department: Optional[str] = ""
+    colors: List[str] = Field(default_factory=list)
+    sizes: List[str] = Field(default_factory=list)
+    averageRating: Optional[float] = None
+    reviewCount: Optional[int] = None
+    soldQuantity: Optional[int] = None
 
 class ChatResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
