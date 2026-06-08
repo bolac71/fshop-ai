@@ -46,13 +46,36 @@ class ChatSessionState(BaseModel):
     active_product_name: Optional[str] = None
     active_category: Optional[str] = None
     active_brand: Optional[str] = None
+    last_product_ids: List[int] = Field(default_factory=list)
+    last_capability: Optional[str] = None
+    last_task: Optional[str] = None
+    user_preferences: Dict[str, Any] = Field(default_factory=dict)
+    negative_preferences: List[str] = Field(default_factory=list)
+    last_search_constraints: Dict[str, Any] = Field(default_factory=dict)
     last_intent: Optional[str] = None
     last_entities: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ParsedChatQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    intent: Literal["product_search", "size_advice", "color_question", "policy", "order", "unknown"]
+    intent: Literal[
+        "product_discovery",
+        "product_qa",
+        "product_compare",
+        "product_search",
+        "size_advice",
+        "color_question",
+        "recommend_products",
+        "product_advice",
+        "compare_products",
+        "policy_qa",
+        "order_qa",
+        "clarify",
+        "policy",
+        "order",
+        "small_talk",
+        "unknown",
+    ]
     search_query: str
     requires_context: bool = False
     confidence: float = 0.0

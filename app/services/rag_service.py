@@ -30,6 +30,11 @@ from qdrant_client import models
 
 # App imports
 from app.models.schemas import ProductSyncRequest, ProductInfo, ChatSessionState, ParsedChatQuery
+from app.services.chat_answerer import ChatAnswerer
+from app.services.chat_context_resolver import ChatContextResolver
+from app.services.chat_intent_router import ChatIntentRouter
+from app.services.chat_planner import ChatPlan, ChatPlanner
+from app.services.chat_tools import ChatToolExecutor, ToolResult
 from app.services.query_intent_service import QueryIntentService
 from app.core.config import (
     PROJECT_ROOT,
@@ -135,6 +140,19 @@ class RagService:
             model_name=LLM_REWRITE_MODEL,
             temperature=0.1
         )
+
+        self.intent_router = ChatIntentRouter(
+            embeddings=self.embeddings,
+            llm_fast=self.llm_fast,
+            debug=os.getenv("AI_INTENT_ROUTER_DEBUG", "true").strip().lower() in {"1", "true", "yes", "on"},
+        )
+        self.context_resolver = ChatContextResolver()
+        self.chat_planner = ChatPlanner(
+            llm_fast=self.llm_fast,
+            debug=os.getenv("AI_CHAT_PLANNER_DEBUG", "true").strip().lower() in {"1", "true", "yes", "on"},
+        )
+        self.chat_tools = ChatToolExecutor(self)
+        self.chat_answerer = ChatAnswerer(self.llm_main)
         
         self._init_prompts()
         print("RAG Service Ready (Multi-Intent Supported)!")
@@ -189,7 +207,7 @@ class RagService:
 
         Hãy trả về đúng schema sau:
         {{
-            "intent": "product_search" | "size_advice" | "color_question" | "policy" | "order" | "unknown",
+            "intent": "product_search" | "size_advice" | "color_question" | "policy" | "order" | "small_talk" | "unknown",
             "search_query": "chuỗi truy vấn ngắn gọn để tìm trong catalog",
             "requires_context": boolean,
             "confidence": number,
@@ -227,7 +245,7 @@ class RagService:
 
         Schema bắt buộc:
         {{
-            "intent": "product_search" | "size_advice" | "color_question" | "policy" | "order" | "unknown",
+            "intent": "product_search" | "size_advice" | "color_question" | "policy" | "order" | "small_talk" | "unknown",
             "search_query": "chuỗi truy vấn ngắn gọn để tìm trong catalog",
             "requires_context": boolean,
             "confidence": number,
@@ -304,6 +322,26 @@ class RagService:
         4. Nếu context rỗng, xin lỗi lịch sự và nói rõ không tìm thấy.
         """)
 
+        self.product_reasoning_prompt = ChatPromptTemplate.from_template("""
+        Bạn là Finn, trợ lý tư vấn thời trang của FShop.
+
+        Sản phẩm đang được hỏi:
+        {product_context}
+
+        Lịch sử gần nhất:
+        {history}
+
+        Câu hỏi của khách: {question}
+
+        Hướng dẫn:
+        1. Trả lời bằng tiếng Việt có dấu, tự nhiên, ngắn gọn nhưng có lý do.
+        2. Chỉ dựa vào dữ liệu sản phẩm ở trên và câu hỏi của khách.
+        3. Nếu khách hỏi "hợp không", "nam/nữ mặc được không", "đi học/đi chơi được không", "phối với gì", hãy tư vấn như stylist thương mại điện tử.
+        4. Nếu metadata không đủ để khẳng định chắc chắn, nói rõ đây là gợi ý tham khảo.
+        5. Không nói rằng bạn không thể hiển thị hình ảnh/sản phẩm nếu đã có sản phẩm trong context.
+        6. Không bịa tồn kho, màu, size hoặc thông tin không có trong dữ liệu.
+        """)
+
         # C. Prompt trả lời về Chính sách
         self.policy_qa_prompt = ChatPromptTemplate.from_template("""
         Bạn là nhân viên chăm sóc khách hàng.
@@ -358,115 +396,108 @@ class RagService:
             return json.dumps(session_state.model_dump(), ensure_ascii=False)
         return json.dumps(session_state, ensure_ascii=False)
 
-    def _extract_json_payload(self, text: str) -> str:
-        raw = (text or "").strip()
-        if not raw:
-            return ""
-
-        code_fence_match = re.search(r"```(?:json)?\s*(.*?)```", raw, flags=re.IGNORECASE | re.DOTALL)
-        if code_fence_match:
-            raw = code_fence_match.group(1).strip()
-
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            return raw
-        return raw[start:end + 1]
-
-    def _normalize_parser_intent(self, intent: str) -> str:
-        normalized = self._normalize_text(intent)
-        if normalized in {"order", "don hang"}:
-            return "order"
-        if normalized in {"policy", "chinh sach"}:
-            return "policy"
-        if normalized in {"size advice", "size", "kich co"}:
-            return "size_advice"
-        if normalized in {"color question", "color", "mau sac"}:
-            return "color_question"
-        if normalized in {"product search", "product", "san pham"}:
-            return "product_search"
-        return normalized if normalized in {"product_search", "size_advice", "color_question", "policy", "order", "unknown"} else "unknown"
-
-    def _default_parsed_query(self, question: str) -> ParsedChatQuery:
+    def _parse_chat_query(self, question: str, history: list, session_state: ChatSessionState | dict | None) -> ParsedChatQuery:
+        decision = self.intent_router.route(question, history, session_state)
+        intent = self._normalize_chat_capability(decision.intent)
         return ParsedChatQuery(
-            intent="product_search",
-            search_query=question,
-            requires_context=False,
-            confidence=0.0,
-            entities={},
-            follow_up=False,
+            intent=intent,
+            search_query=(decision.search_query or question).strip(),
+            requires_context=decision.requires_context,
+            confidence=decision.confidence,
+            entities=decision.entities or {},
+            follow_up=decision.follow_up,
         )
 
-    def _normalize_parser_payload(self, payload: dict, question: str) -> dict:
-        if not isinstance(payload, dict):
-            return {}
+    def _parsed_query_from_plan(self, plan: ChatPlan, question: str) -> ParsedChatQuery:
+        intent_map = {
+            "recommend_products": "product_discovery",
+            "product_advice": "product_qa",
+            "compare_products": "product_compare",
+            "policy_qa": "policy",
+            "order_qa": "order",
+            "small_talk": "small_talk",
+            "clarify": "unknown",
+        }
+        entities = {
+            "plan": plan.model_dump(),
+            "search": plan.search.model_dump(),
+            "reference": plan.reference.model_dump(),
+            "user_preferences": plan.user_preferences.model_dump(),
+        }
+        return ParsedChatQuery(
+            intent=intent_map.get(plan.task, "unknown"),
+            search_query=plan.search.query or question,
+            requires_context=plan.uses_previous_context,
+            confidence=plan.confidence,
+            entities=entities,
+            follow_up=plan.uses_previous_context,
+        )
 
-        payload["search_query"] = str(payload.get("search_query") or question).strip()
-        payload["intent"] = self._normalize_parser_intent(str(payload.get("intent") or "unknown"))
-        payload["requires_context"] = bool(payload.get("requires_context", False))
-        payload["follow_up"] = bool(payload.get("follow_up", False))
-        payload["entities"] = payload.get("entities") if isinstance(payload.get("entities"), dict) else {}
+    def _merge_state_from_plan(
+        self,
+        plan: ChatPlan,
+        previous_state: ChatSessionState | dict | None,
+        parsed_query: ParsedChatQuery,
+    ) -> ChatSessionState:
+        previous = previous_state if isinstance(previous_state, ChatSessionState) else ChatSessionState.model_validate(previous_state or {})
+        preferences = dict(previous.user_preferences or {})
+        plan_preferences = plan.user_preferences.model_dump()
+        for key, value in plan_preferences.items():
+            if value not in (None, "", []):
+                preferences[key] = value
 
-        try:
-            payload["confidence"] = float(payload.get("confidence", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            payload["confidence"] = 0.0
+        negative_preferences = list(previous.negative_preferences or [])
+        for item in plan.user_preferences.negative_preferences:
+            if item and item not in negative_preferences:
+                negative_preferences.append(item)
 
-        return payload
+        constraints = plan.search.model_dump()
+        return ChatSessionState(
+            active_product_id=previous.active_product_id,
+            active_product_name=previous.active_product_name,
+            active_category=previous.active_category,
+            active_brand=previous.active_brand,
+            last_product_ids=previous.last_product_ids,
+            last_capability=parsed_query.intent,
+            last_task=plan.task,
+            user_preferences=preferences,
+            negative_preferences=negative_preferences,
+            last_search_constraints=constraints if plan.task == "recommend_products" else previous.last_search_constraints,
+            last_intent=parsed_query.intent,
+            last_entities=parsed_query.entities,
+        )
 
-    def _validate_parsed_query(self, parsed: ParsedChatQuery, question: str) -> ParsedChatQuery | None:
-        if not parsed.search_query or not parsed.search_query.strip():
-            parsed.search_query = question
-
-        parsed.intent = self._normalize_parser_intent(parsed.intent)
-        if parsed.intent == "size_advice" and self._is_size_support_policy_question(question):
-            parsed.intent = "policy"
-
-        if parsed.intent == "unknown":
-            parsed.intent = "product_search"
-
-        parsed.search_query = parsed.search_query.strip()
-        parsed.entities = parsed.entities or {}
-        return parsed
-
-    def _parse_chat_query(self, question: str, history: list, session_state: ChatSessionState | dict | None) -> ParsedChatQuery:
-        history_text = "\n".join([f"{msg.role}: {msg.content}" for msg in history[-8:]]) if history else ""
-        session_text = self._serialize_session_state(session_state)
-
-        chain = self.query_parser_prompt | self.llm_fast | StrOutputParser()
-        fallback_chain = self.query_parser_fallback_prompt | self.llm_main | StrOutputParser()
-
-        for current_chain in (chain, fallback_chain):
-            try:
-                raw = current_chain.invoke({"session_state": session_text, "history": history_text, "question": question})
-                payload = self._normalize_parser_payload(json.loads(self._extract_json_payload(raw)), question)
-                parsed = ParsedChatQuery.model_validate(payload)
-                parsed = self._validate_parsed_query(parsed, question)
-                parsed = self._apply_deterministic_intent_guard(parsed, question)
-                if parsed and parsed.confidence >= 0.35:
-                    return parsed
-            except Exception as e:
-                print(f"Parser fallback error: {e}")
-
-        return self._default_parsed_query(question)
-
-    def _apply_deterministic_intent_guard(self, parsed: ParsedChatQuery, question: str) -> ParsedChatQuery:
-        fast_intent = self._detect_intent_fast(question).lower()
-        if fast_intent in {"order", "policy"} and parsed.intent not in {"order", "policy"}:
-            parsed.intent = fast_intent
-            parsed.search_query = question
-            parsed.requires_context = False
-            parsed.follow_up = False
-            parsed.confidence = max(parsed.confidence, 0.85)
-        return parsed
+    def _normalize_chat_capability(self, intent: str) -> str:
+        mapping = {
+            "product_search": "product_discovery",
+            "product": "product_discovery",
+            "product_discovery": "product_discovery",
+            "size_advice": "product_qa",
+            "color_question": "product_qa",
+            "style_advice": "product_qa",
+            "product_advice": "product_qa",
+            "product_question": "product_qa",
+            "product_qa": "product_qa",
+            "product_compare": "product_compare",
+            "compare": "product_compare",
+            "comparison": "product_compare",
+            "policy": "policy",
+            "order": "order",
+            "small_talk": "small_talk",
+            "unknown": "unknown",
+        }
+        return mapping.get(str(intent or "").strip(), "unknown")
 
     def _build_state_from_meta(
         self,
         parsed_query: ParsedChatQuery,
         meta: dict | None,
         previous_state: ChatSessionState | dict | None,
+        last_product_ids: list[int] | None = None,
     ) -> ChatSessionState:
         previous = previous_state if isinstance(previous_state, ChatSessionState) else ChatSessionState.model_validate(previous_state or {})
+        previous_last_product_ids = [int(pid) for pid in (previous.last_product_ids or []) if pid]
+        next_last_product_ids = last_product_ids if last_product_ids is not None else previous_last_product_ids
 
         if not meta:
             return ChatSessionState(
@@ -474,6 +505,12 @@ class RagService:
                 active_product_name=previous.active_product_name,
                 active_category=previous.active_category,
                 active_brand=previous.active_brand,
+                last_product_ids=next_last_product_ids,
+                last_capability=parsed_query.intent,
+                last_task=previous.last_task,
+                user_preferences=previous.user_preferences,
+                negative_preferences=previous.negative_preferences,
+                last_search_constraints=previous.last_search_constraints,
                 last_intent=parsed_query.intent,
                 last_entities=parsed_query.entities,
             )
@@ -483,7 +520,7 @@ class RagService:
         active_category = meta.get("category_name") or meta.get("category") or previous.active_category
         active_brand = meta.get("brand_name") or meta.get("brand") or previous.active_brand
 
-        if parsed_query.intent in {"size_advice", "color_question"} and previous.active_product_id:
+        if parsed_query.intent in {"product_qa", "size_advice", "color_question"} and previous.active_product_id and not meta.get("product_id"):
             active_product_id = previous.active_product_id
             active_product_name = previous.active_product_name or active_product_name
             active_category = previous.active_category or active_category
@@ -494,6 +531,12 @@ class RagService:
             active_product_name=active_product_name,
             active_category=active_category,
             active_brand=active_brand,
+            last_product_ids=next_last_product_ids,
+            last_capability=parsed_query.intent,
+            last_task=previous.last_task,
+            user_preferences=previous.user_preferences,
+            negative_preferences=previous.negative_preferences,
+            last_search_constraints=previous.last_search_constraints,
             last_intent=parsed_query.intent,
             last_entities=parsed_query.entities,
         )
@@ -509,6 +552,12 @@ class RagService:
             active_product_name=previous.active_product_name,
             active_category=previous.active_category,
             active_brand=previous.active_brand,
+            last_product_ids=previous.last_product_ids,
+            last_capability=parsed_query.intent,
+            last_task=previous.last_task,
+            user_preferences=previous.user_preferences,
+            negative_preferences=previous.negative_preferences,
+            last_search_constraints=previous.last_search_constraints,
             last_intent=parsed_query.intent,
             last_entities=parsed_query.entities,
         )
@@ -640,6 +689,33 @@ class RagService:
             return "POLICY"
         
         return "PRODUCT"
+
+    def _build_small_talk_answer(self, question: str) -> str:
+        q = self._normalize_text(question)
+        if any(term in q for term in ["cam on", "thank", "thanks", "tks"]):
+            return "Rất vui được hỗ trợ bạn. Khi cần tìm sản phẩm, so sánh nhanh, tư vấn size/màu hoặc hỏi về đơn hàng, cứ nhắn Finn nhé."
+
+        if any(term in q for term in ["tam biet", "bye", "goodbye", "hen gap lai"]):
+            return "Tạm biệt bạn. Khi cần mua sắm thời trang hay cần Finn hỗ trợ, mình luôn sẵn sàng nhé."
+
+        if any(term in q for term in ["la ai", "giup duoc gi", "lam duoc gi", "ho tro gi"]):
+            return (
+                "Mình là Finn, trợ lý mua sắm của FShop. Mình có thể giúp bạn tìm sản phẩm, "
+                "tìm bằng ảnh hoặc giọng nói, so sánh nhanh sản phẩm, tư vấn size/màu, "
+                "và hỗ trợ tra cứu đơn hàng hoặc chính sách."
+            )
+
+        return (
+            "Chào bạn, mình là Finn, trợ lý mua sắm của FShop. "
+            "Bạn có thể nhắn mình để tìm sản phẩm, so sánh nhanh, tư vấn size/màu, "
+            "tra đơn hàng hoặc hỏi chính sách nhé."
+        )
+
+    def _build_unknown_answer(self) -> str:
+        return (
+            "Mình chưa hiểu rõ nhu cầu của bạn. Bạn có thể nói cụ thể hơn, ví dụ: "
+            "tìm áo thun nam, so sánh hai sản phẩm, tư vấn size, kiểm tra đơn hàng hoặc hỏi chính sách FShop nhé."
+        )
 
     def _is_policy_overview_question(self, question: str) -> bool:
         q = self._normalize_text(question)
@@ -1085,8 +1161,8 @@ class RagService:
                 continue
             actual = self._normalize_text(str(value or ""))
             expected_items = expected if isinstance(expected, list) else [expected]
-            expected_keys = [item.get("key") for item in expected_items if item.get("key")]
-            if expected_keys and not any(expected_key in actual for expected_key in expected_keys):
+            expected_values = self._structured_expected_values(expected_items)
+            if expected_values and not any(expected_value in actual for expected_value in expected_values):
                 return False
         return True
 
@@ -1109,9 +1185,31 @@ class RagService:
             total += 1
             actual = self._normalize_text(str(value or ""))
             expected_items = expected if isinstance(expected, list) else [expected]
-            if any(item.get("key") in actual for item in expected_items if item.get("key")):
+            expected_values = self._structured_expected_values(expected_items)
+            if any(expected_value in actual for expected_value in expected_values):
                 hits += 1
         return hits / max(total, 1)
+
+    def _structured_expected_values(self, expected_items: list[dict]) -> list[str]:
+        values = []
+        for item in expected_items:
+            for field in ("key", "display", "alias"):
+                value = self._normalize_text(str(item.get(field) or ""))
+                if value:
+                    values.append(value)
+        aliases = {
+            "men": "nam",
+            "male": "nam",
+            "women": "nu",
+            "female": "nu",
+            "kids": "tre em",
+        }
+        values.extend(aliases[value] for value in list(values) if value in aliases)
+        deduped = []
+        for value in values:
+            if value not in deduped:
+                deduped.append(value)
+        return deduped
 
     def _get_structured_product_docs(self, query: str, limit: int = 24) -> tuple[list[Document], dict]:
         filters = self._extract_structured_filters(query)
@@ -1160,6 +1258,84 @@ class RagService:
 
         return merged
 
+    def _get_product_docs_by_ids(self, product_ids: list[int]) -> list[Document]:
+        ids = [int(product_id) for product_id in product_ids if product_id]
+        if not ids:
+            return []
+
+        should_conditions = []
+        for product_id in ids:
+            should_conditions.extend(
+                [
+                    models.FieldCondition(
+                        key="product_id",
+                        match=models.MatchValue(value=product_id),
+                    ),
+                    models.FieldCondition(
+                        key="metadata.product_id",
+                        match=models.MatchValue(value=product_id),
+                    ),
+                ]
+            )
+
+        try:
+            points, _ = self.client.scroll(
+                collection_name=COLLECTION_PRODUCT_TEXT,
+                scroll_filter=models.Filter(should=should_conditions),
+                limit=max(len(ids) * 2, 8),
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception as exc:
+            self._chat_log(f"get_product_docs_by_ids failed ids={ids} error={exc}")
+            return []
+
+        docs_by_id: dict[int, Document] = {}
+        for point in points:
+            payload = point.payload or {}
+            nested_meta = payload.get("metadata") if isinstance(payload, dict) else None
+            meta = nested_meta if isinstance(nested_meta, dict) else payload
+            if not isinstance(meta, dict):
+                continue
+            product_id = int(meta.get("product_id") or meta.get("id") or 0)
+            if not product_id or product_id in docs_by_id:
+                continue
+            content = payload.get("page_content") or payload.get("search_text") or self._resolve_doc_context(Document(page_content="", metadata=meta), meta)
+            docs_by_id[product_id] = Document(page_content=str(content or ""), metadata=meta)
+
+        return [docs_by_id[product_id] for product_id in ids if product_id in docs_by_id]
+
+    def _product_info_from_meta(self, meta: dict) -> ProductInfo | None:
+        product_id = int(meta.get("product_id", 0) or 0)
+        if not product_id:
+            return None
+        return ProductInfo(
+            id=product_id,
+            name=str(meta.get("name") or ""),
+            price=float(meta.get("price") or 0),
+            image_url=str(meta.get("primary_image_url") or meta.get("image_url") or ""),
+            category=str(meta.get("category_name") or meta.get("category") or ""),
+            brand=str(meta.get("brand_name") or meta.get("brand") or ""),
+            category_department=str(meta.get("category_department") or ""),
+            colors=self._extract_color_names(meta),
+            sizes=self._extract_size_names(meta),
+            averageRating=meta.get("averageRating") or meta.get("average_rating"),
+            reviewCount=meta.get("reviewCount") or meta.get("review_count"),
+            soldQuantity=meta.get("soldQuantity") or meta.get("sold_quantity"),
+        )
+
+    def _build_products_from_docs(self, docs: list[Document]) -> list[ProductInfo]:
+        products = []
+        seen_product_ids = set()
+        for doc in docs:
+            meta = self._resolve_doc_metadata(doc)
+            info = self._product_info_from_meta(meta)
+            if not info or info.id in seen_product_ids:
+                continue
+            seen_product_ids.add(info.id)
+            products.append(info)
+        return products
+
     def _has_explicit_product_signal(self, parsed_query: ParsedChatQuery) -> bool:
         entities = parsed_query.entities or {}
         if entities.get("product_name"):
@@ -1177,10 +1353,10 @@ class RagService:
             return True
         if not parsed_query.requires_context:
             return False
-        # A product_search without follow_up means the user is asking about a new/different
+        # A product discovery without follow_up means the user is asking about a new/different
         # product. Appending previous session context (e.g. old product name/brand) would
         # pollute the retrieval query and return wrong results.
-        if parsed_query.intent == "product_search":
+        if parsed_query.intent in {"product_search", "product_discovery"}:
             return False
         return not self._has_explicit_product_signal(parsed_query)
 
@@ -1777,21 +1953,220 @@ class RagService:
 
         return best_idx
 
+    def _format_chat_history(self, history: list | None, limit: int = 6) -> str:
+        parts = []
+        for item in (history or [])[-limit:]:
+            if isinstance(item, dict):
+                role = item.get("role", "")
+                content = item.get("content", "")
+            else:
+                role = getattr(item, "role", "")
+                content = getattr(item, "content", "")
+            if content:
+                parts.append(f"{role}: {content}")
+        return "\n".join(parts)
+
+    def _build_product_context_text(self, docs: list[Document]) -> str:
+        chunks = []
+        for index, doc in enumerate(docs, start=1):
+            meta = self._resolve_doc_metadata(doc)
+            sizes = ", ".join(self._extract_size_names(meta)) or "không rõ"
+            colors = ", ".join(self._extract_color_names(meta)) or "không rõ"
+            chunks.append(
+                "\n".join(
+                    [
+                        f"Product {index}: {meta.get('name', '')}",
+                        f"ID: {meta.get('product_id', '')}",
+                        f"Brand: {meta.get('brand_name') or meta.get('brand', '')}",
+                        f"Category: {meta.get('category_name') or meta.get('category', '')}",
+                        f"Department: {meta.get('category_department', '')}",
+                        f"Price: {meta.get('price', 0)}",
+                        f"Sizes: {sizes}",
+                        f"Colors: {colors}",
+                        f"Description: {meta.get('description', '')}",
+                        f"Details: {self._resolve_doc_context(doc, meta)}",
+                    ]
+                )
+            )
+        return "\n\n".join(chunks)
+
+    def _build_product_qa_fallback_answer(self, question: str, docs: list[Document]) -> str:
+        meta = self._resolve_doc_metadata(docs[0])
+        product_name = meta.get("name") or "sản phẩm này"
+        category = meta.get("category_name") or meta.get("category") or "sản phẩm thời trang"
+        colors = self._extract_color_names(meta)
+        sizes = self._extract_size_names(meta)
+        detail_parts = [f"{product_name} thuộc nhóm {category}"]
+        if colors:
+            detail_parts.append(f"có màu {', '.join(colors)}")
+        if sizes:
+            detail_parts.append(f"có size {', '.join(sizes)}")
+        return (
+            f"Theo thông tin mình có, {'; '.join(detail_parts)}. "
+            "Nếu bạn hỏi về độ phù hợp, mình nghiêng về mức phù hợp tham khảo: hãy chọn theo form bạn thích, "
+            "màu sắc/phong cách bạn hay mặc và kiểm tra size còn hàng trước khi chốt nhé."
+        )
+
+    def _build_compare_fallback_answer(self, docs: list[Document]) -> str:
+        metas = [self._resolve_doc_metadata(doc) for doc in docs]
+        names = [str(meta.get("name") or "sản phẩm") for meta in metas]
+        return (
+            f"Mình đang có {len(names)} sản phẩm để so sánh: {', '.join(names)}. "
+            "Bạn có thể chọn theo nhu cầu chính: giá, phong cách, màu dễ phối, hoặc size còn phù hợp. "
+            "Nếu muốn mình chốt giúp, hãy nói thêm bạn mặc đi học, đi chơi hay đi làm nhé."
+        )
+
+    def _constraints_to_filter_query(self, constraints: dict | None) -> str:
+        if not constraints:
+            return ""
+        gender_text = {"male": "nam", "female": "nữ", "unisex": "unisex"}.get(str(constraints.get("gender") or ""), "")
+        parts = [
+            constraints.get("query"),
+            gender_text,
+            constraints.get("category"),
+            constraints.get("brand"),
+            constraints.get("color"),
+            constraints.get("size"),
+            constraints.get("style"),
+            constraints.get("occasion"),
+        ]
+        return " ".join(str(part).strip() for part in parts if part).strip()
+
+    def _search_product_docs(
+        self,
+        query: str,
+        constraints: dict | None = None,
+        exclude_product_ids: list[int] | None = None,
+        limit: int | None = None,
+    ) -> tuple[list[Document], dict]:
+        search_query = (query or "").strip()
+        constraint_query = self._constraints_to_filter_query(constraints)
+        structured_query = constraint_query or search_query
+        exclude_ids = {int(product_id) for product_id in (exclude_product_ids or []) if product_id}
+
+        t0 = time.time()
+        vector_docs = self.product_store.similarity_search(search_query or structured_query, k=24)
+        structured_docs, structured_filters = self._get_structured_product_docs(structured_query)
+        docs = self._merge_unique_docs(structured_docs, vector_docs)
+        print(
+            f"🔍 Product Retrieval: {time.time() - t0:.2f}s "
+            f"(Vector={len(vector_docs)}, Structured={len(structured_docs)}, Merged={len(docs)})"
+        )
+        self._chat_log(
+            f"tool_search query='{search_query}' structured_query='{structured_query}' "
+            f"filters={structured_filters} exclude={sorted(exclude_ids)}"
+        )
+
+        if not docs:
+            return [], structured_filters
+
+        resolved_metas = [self._resolve_doc_metadata(doc) for doc in docs]
+        candidate_indices = [
+            idx for idx, meta in enumerate(resolved_metas)
+            if int(meta.get("product_id", 0) or 0) not in exclude_ids
+        ]
+        if not candidate_indices:
+            if exclude_ids:
+                self._chat_log(f"exclude_product_ids removed all candidates exclude={sorted(exclude_ids)}")
+                return [], structured_filters
+            candidate_indices = list(range(len(docs)))
+
+        if self._has_hard_structured_filters(structured_filters):
+            structured_matched_indices = [
+                idx for idx in candidate_indices
+                if self._meta_passes_structured_filters(resolved_metas[idx], structured_filters)
+            ]
+            if structured_matched_indices:
+                candidate_indices = structured_matched_indices
+                self._chat_log(
+                    f"structured_filter applied filters={structured_filters} | kept={[self._compact_meta(resolved_metas[idx]) for idx in candidate_indices[:8]]}"
+                )
+
+        core_nouns = self._extract_core_product_nouns(structured_query or search_query)
+        if core_nouns:
+            core_matched_indices = [
+                idx for idx in candidate_indices
+                if self._meta_matches_core_nouns(resolved_metas[idx], core_nouns)
+            ]
+            if core_matched_indices:
+                candidate_indices = core_matched_indices
+                self._chat_log(
+                    f"core_product_filter applied nouns={core_nouns} | kept={[self._compact_meta(resolved_metas[idx]) for idx in candidate_indices[:8]]}"
+                )
+
+        candidate_limit = max(1, min(max(RERANK_TOP_K, limit or RERANK_TOP_K, 8), len(candidate_indices)))
+        candidate_indices = candidate_indices[:candidate_limit]
+        candidate_docs = [docs[idx] for idx in candidate_indices]
+        candidate_metas = [resolved_metas[idx] for idx in candidate_indices]
+        doc_texts = [self._resolve_doc_context(doc, meta) for doc, meta in zip(candidate_docs, candidate_metas)]
+        pairs = [[search_query or structured_query, text] for text in doc_texts]
+
+        if ENABLE_RERANK and pairs:
+            scores = self.reranker.predict(pairs)
+        else:
+            scores = [0.0 for _ in pairs]
+
+        scored_items = []
+        for local_idx, score in enumerate(scores):
+            idx = candidate_indices[local_idx]
+            meta = resolved_metas[idx]
+            token_score = self._token_overlap_score(search_query or structured_query, meta)
+            structured_score = self._structured_filter_score(meta, structured_filters)
+            anchor_score = max(
+                self._score_doc_anchor(search_query, meta),
+                self._score_doc_anchor(structured_query, meta),
+            )
+            boosted_score = float(score) + (0.70 * token_score) + (1.40 * structured_score) + (1.00 * anchor_score)
+            scored_items.append((idx, boosted_score, anchor_score))
+        scored_items.sort(key=lambda item: item[1], reverse=True)
+        self._chat_log(
+            f"tool_ranked_candidates={[{**self._compact_meta(resolved_metas[idx]), 'score': round(score, 4), 'anchor_score': round(anchor_score, 4)} for idx, score, anchor_score in scored_items[:8]]}"
+        )
+
+        result_limit = max(1, limit or RERANK_TOP_K)
+        return [docs[idx] for idx, _, _ in scored_items[:result_limit]], structured_filters
+
     async def chat(self, user_query: str, history: list, user_id: int = None, session_state: ChatSessionState | dict | None = None):
         total_start = time.time()
         print(f"User  asking: {user_query}")
 
-        parsed_query = self._parse_chat_query(user_query, history, session_state)
+        planner_enabled = os.getenv("AI_CHAT_PLANNER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+        chat_plan = None
+        planner_state = session_state
+        if planner_enabled:
+            chat_plan = self.chat_planner.plan(user_query, history, session_state)
+            parsed_query = self._parsed_query_from_plan(chat_plan, user_query)
+            planner_state = self._merge_state_from_plan(chat_plan, session_state, parsed_query)
+            self._chat_log(f"chat_plan={chat_plan.model_dump()} | planner_state={planner_state.model_dump()}")
+        else:
+            parsed_query = self._parse_chat_query(user_query, history, session_state)
         intent = parsed_query.intent
         print(f"🧭 Parsed Intent: {intent} | confidence={parsed_query.confidence:.2f}")
         self._chat_log(
-            f"parsed_query={parsed_query.model_dump()} | session_state={session_state.model_dump() if isinstance(session_state, ChatSessionState) else session_state}"
+            f"parsed_query={parsed_query.model_dump()} | session_state={planner_state.model_dump() if isinstance(planner_state, ChatSessionState) else planner_state}"
         )
+
+        if chat_plan and chat_plan.task == "clarify":
+            state = self._default_state_from_query(parsed_query, planner_state)
+            answer = self.chat_answerer.fallback(user_query, chat_plan, self._empty_tool_result("clarify"))
+            return self._build_chat_result(answer, [], state, parsed_query)
+
+        if intent == "small_talk":
+            state = self._default_state_from_query(parsed_query, planner_state)
+            if chat_plan:
+                answer = self.chat_answerer.fallback(user_query, chat_plan, self._empty_tool_result("small_talk"))
+            else:
+                answer = self._build_small_talk_answer(user_query)
+            return self._build_chat_result(answer, [], state, parsed_query)
+
+        if intent == "unknown":
+            state = self._default_state_from_query(parsed_query, planner_state)
+            return self._build_chat_result(self._build_unknown_answer(), [], state, parsed_query)
 
         # CASE A: ORDER 
         if intent == "order":
             if not user_id:
-                state = self._default_state_from_query(parsed_query, session_state)
+                state = self._default_state_from_query(parsed_query, planner_state)
                 return self._build_chat_result("Vui lòng đăng nhập để kiểm tra đơn hàng.", [], state, parsed_query)
             
             # Trích xuất mã đơn hàng nếu có (Ví dụ: "Đơn hàng 123", "Mã đơn 123")
@@ -1807,7 +2182,7 @@ class RagService:
             answer = chain.invoke({"order_context": order_data, "question": user_query})
             
             print(f"⏱️ TOTAL TIME: {time.time() - total_start:.2f}s")
-            state = self._default_state_from_query(parsed_query, session_state)
+            state = self._default_state_from_query(parsed_query, planner_state)
             return self._build_chat_result(answer, [], state, parsed_query)
 
         # CASE B: POLICY
@@ -1822,7 +2197,7 @@ class RagService:
 
             print(f"🔍 Policy Retrieval ({retrieval_mode}): {time.time() - t0:.2f}s")
             
-            state = self._default_state_from_query(parsed_query, session_state)
+            state = self._default_state_from_query(parsed_query, planner_state)
             if not docs:
                 return self._build_chat_result(
                     "Xin lỗi, hiện tại mình chưa tìm thấy thông tin chính sách phù hợp. Bạn có thể hỏi cụ thể về vận chuyển, đổi trả, thanh toán hoặc liên hệ shop nhé.",
@@ -1840,9 +2215,158 @@ class RagService:
             answer = chain.invoke({"context": context_text, "question": user_query})
             return self._build_chat_result(answer, [], state, parsed_query)
 
-        # CASE C: PRODUCT (Default)
+        if intent == "product_qa":
+            if chat_plan:
+                return await self._handle_planned_product_task(user_query, parsed_query, chat_plan, planner_state)
+            return await self._handle_product_qa(user_query, history, parsed_query, planner_state)
+
+        if intent == "product_compare":
+            if chat_plan:
+                return await self._handle_planned_product_task(user_query, parsed_query, chat_plan, planner_state)
+            return await self._handle_product_compare(user_query, history, parsed_query, planner_state)
+
+        # CASE C: PRODUCT DISCOVERY (Default)
         else:
-            return await self._handle_product_search(user_query, history, parsed_query, session_state)
+            if chat_plan:
+                return await self._handle_planned_product_task(user_query, parsed_query, chat_plan, planner_state)
+            return await self._handle_product_search(user_query, history, parsed_query, planner_state)
+
+    def _empty_tool_result(self, kind: str) -> ToolResult:
+        return ToolResult(kind=kind)
+
+    async def _handle_planned_product_task(
+        self,
+        user_query: str,
+        parsed_query: ParsedChatQuery,
+        chat_plan: ChatPlan,
+        session_state: ChatSessionState | dict | None,
+    ):
+        if chat_plan.task == "recommend_products":
+            tool_result = self.chat_tools.search_products(chat_plan.search)
+        elif chat_plan.task == "product_advice":
+            tool_result = self.chat_tools.resolve_product_advice(chat_plan, session_state)
+        elif chat_plan.task == "compare_products":
+            tool_result = self.chat_tools.resolve_compare(chat_plan, session_state)
+        else:
+            tool_result = self._empty_tool_result(chat_plan.task)
+
+        answer = self.chat_answerer.answer(user_query, chat_plan, tool_result)
+        docs = tool_result.docs
+        products = tool_result.products
+        first_meta = self._resolve_doc_metadata(docs[0]) if docs else None
+        state = self._build_state_from_meta(
+            parsed_query,
+            first_meta,
+            session_state,
+            last_product_ids=[product.id for product in products] if products else None,
+        )
+        state.last_task = chat_plan.task
+        state.last_capability = parsed_query.intent
+        state.last_intent = parsed_query.intent
+        state.last_entities = parsed_query.entities
+        merged = self._merge_state_from_plan(chat_plan, state, parsed_query)
+        if products:
+            merged.last_product_ids = [product.id for product in products]
+            if first_meta:
+                merged.active_product_id = int(first_meta.get("product_id", 0) or 0) or merged.active_product_id
+                merged.active_product_name = first_meta.get("name") or merged.active_product_name
+                merged.active_category = first_meta.get("category_name") or first_meta.get("category") or merged.active_category
+                merged.active_brand = first_meta.get("brand_name") or first_meta.get("brand") or merged.active_brand
+        self._chat_log(f"branch=planned_{chat_plan.task} | tool={tool_result.kind} | next_state={merged.model_dump()}")
+        return self._build_chat_result(answer, products, merged, parsed_query)
+
+    async def _handle_product_qa(self, user_query: str, history: list, parsed_query: ParsedChatQuery, session_state: ChatSessionState | dict | None):
+        resolution = self.context_resolver.resolve(user_query, parsed_query, session_state)
+        self._chat_log(f"context_resolution={resolution.model_dump()}")
+        if resolution.needs_clarification:
+            state = self._default_state_from_query(parsed_query, session_state)
+            return self._build_chat_result(
+                "Bạn đang hỏi sản phẩm nào vậy? Bạn có thể chọn một sản phẩm trong danh sách vừa xem hoặc nhắn tên sản phẩm để Finn tư vấn chính xác hơn nhé.",
+                [],
+                state,
+                parsed_query,
+            )
+
+        docs = self._get_product_docs_by_ids(resolution.product_ids)
+        if not docs:
+            state = self._default_state_from_query(parsed_query, session_state)
+            return self._build_chat_result(
+                "Mình chưa lấy lại được thông tin sản phẩm đang được hỏi. Bạn gửi lại tên sản phẩm hoặc chọn lại sản phẩm giúp Finn nhé.",
+                [],
+                state,
+                parsed_query,
+            )
+
+        products = self._build_products_from_docs(docs)
+        product_context = self._build_product_context_text(docs)
+        history_text = self._format_chat_history(history)
+        try:
+            answer = (self.product_reasoning_prompt | self.llm_main | StrOutputParser()).invoke(
+                {
+                    "product_context": product_context,
+                    "history": history_text,
+                    "question": user_query,
+                }
+            ).strip()
+        except Exception as exc:
+            print(f"Product QA LLM Error: {exc}")
+            answer = self._build_product_qa_fallback_answer(user_query, docs)
+
+        state = self._build_state_from_meta(
+            parsed_query,
+            self._resolve_doc_metadata(docs[0]),
+            session_state,
+            last_product_ids=[product.id for product in products],
+        )
+        self._chat_log(f"branch=product_qa | next_state={state.model_dump()}")
+        return self._build_chat_result(answer, products, state, parsed_query)
+
+    async def _handle_product_compare(self, user_query: str, history: list, parsed_query: ParsedChatQuery, session_state: ChatSessionState | dict | None):
+        resolution = self.context_resolver.resolve(user_query, parsed_query, session_state)
+        self._chat_log(f"context_resolution={resolution.model_dump()}")
+        if resolution.needs_clarification:
+            state = self._default_state_from_query(parsed_query, session_state)
+            return self._build_chat_result(
+                "Bạn muốn so sánh những sản phẩm nào? Bạn có thể nói kiểu: so sánh mẫu đầu và mẫu thứ 2 nhé.",
+                [],
+                state,
+                parsed_query,
+            )
+
+        docs = self._get_product_docs_by_ids(resolution.product_ids[:3])
+        if len(docs) < 2:
+            state = self._default_state_from_query(parsed_query, session_state)
+            return self._build_chat_result(
+                "Mình cần ít nhất hai sản phẩm để so sánh. Bạn chọn thêm một sản phẩm nữa giúp Finn nhé.",
+                self._build_products_from_docs(docs),
+                state,
+                parsed_query,
+            )
+
+        products = self._build_products_from_docs(docs)
+        product_context = self._build_product_context_text(docs)
+        history_text = self._format_chat_history(history)
+        compare_question = f"So sánh các sản phẩm trong context và trả lời câu hỏi: {user_query}"
+        try:
+            answer = (self.product_reasoning_prompt | self.llm_main | StrOutputParser()).invoke(
+                {
+                    "product_context": product_context,
+                    "history": history_text,
+                    "question": compare_question,
+                }
+            ).strip()
+        except Exception as exc:
+            print(f"Product Compare LLM Error: {exc}")
+            answer = self._build_compare_fallback_answer(docs)
+
+        state = self._build_state_from_meta(
+            parsed_query,
+            self._resolve_doc_metadata(docs[0]),
+            session_state,
+            last_product_ids=[product.id for product in products],
+        )
+        self._chat_log(f"branch=product_compare | next_state={state.model_dump()}")
+        return self._build_chat_result(answer, products, state, parsed_query)
 
     async def _handle_product_search(self, user_query: str, history: list, parsed_query: ParsedChatQuery, session_state: ChatSessionState | dict | None):
         search_query = parsed_query.search_query or user_query
@@ -1889,6 +2413,18 @@ class RagService:
                 candidate_indices = structured_matched_indices
                 self._chat_log(
                     f"structured_filter applied filters={structured_filters} | kept={[self._compact_meta(resolved_metas[idx]) for idx in candidate_indices[:8]]}"
+                )
+
+        core_nouns = self._extract_core_product_nouns(search_query or user_query)
+        if core_nouns:
+            core_matched_indices = [
+                idx for idx in candidate_indices
+                if self._meta_matches_core_nouns(resolved_metas[idx], core_nouns)
+            ]
+            if core_matched_indices:
+                candidate_indices = core_matched_indices
+                self._chat_log(
+                    f"core_product_filter applied nouns={core_nouns} | kept={[self._compact_meta(resolved_metas[idx]) for idx in candidate_indices[:8]]}"
                 )
 
         active_state = session_state if isinstance(session_state, ChatSessionState) else ChatSessionState.model_validate(session_state or {})
@@ -1998,58 +2534,37 @@ class RagService:
 
         final_docs = [docs[idx] for idx in ordered_indices[:max(1, RERANK_TOP_K)]]
         answer_query = style_context_query if has_style_preference else user_query
-        filtered_products = []
-        seen_product_ids = set()
-        for doc in final_docs:
-            meta = self._resolve_doc_metadata(doc)
-            product_id = int(meta.get("product_id", 0) or 0)
-            if not product_id or product_id in seen_product_ids:
-                continue
-            seen_product_ids.add(product_id)
-            filtered_products.append(
-                ProductInfo(
-                    id=product_id,
-                    name=str(meta.get("name") or ""),
-                    price=float(meta.get("price") or 0),
-                    image_url=str(meta.get("primary_image_url") or meta.get("image_url") or ""),
-                    category=str(meta.get("category_name") or meta.get("category") or ""),
-                    brand=str(meta.get("brand_name") or meta.get("brand") or ""),
-                    category_department=str(meta.get("category_department") or ""),
-                    colors=self._extract_color_names(meta),
-                    sizes=self._extract_size_names(meta),
-                    averageRating=meta.get("averageRating") or meta.get("average_rating"),
-                    reviewCount=meta.get("reviewCount") or meta.get("review_count"),
-                    soldQuantity=meta.get("soldQuantity") or meta.get("sold_quantity"),
-                )
-            )
+        filtered_products = self._build_products_from_docs(final_docs)
+        final_product_ids = [product.id for product in filtered_products]
 
         print(f"Re-ranking: {time.time() - t1:.2f}s. Final Docs: {len(final_docs)}")
         self._chat_log(f"final_docs={[self._compact_meta(self._resolve_doc_metadata(doc)) for doc in final_docs]}")
         # Deterministic answer for size/color/style questions when metadata already has fields.
 
-        combined_answer = self._build_combined_size_color_answer(answer_query, final_docs)
-        if combined_answer:
-            state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state)
-            self._chat_log(f"branch=combined_size_color_answer | next_state={state.model_dump()}")
-            return self._build_chat_result(combined_answer, filtered_products, state, parsed_query)
+        if parsed_query.intent != "product_discovery":
+            combined_answer = self._build_combined_size_color_answer(answer_query, final_docs)
+            if combined_answer:
+                state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state, final_product_ids)
+                self._chat_log(f"branch=combined_size_color_answer | next_state={state.model_dump()}")
+                return self._build_chat_result(combined_answer, filtered_products, state, parsed_query)
 
-        preference_answer = self._build_preference_followup_answer(answer_query, final_docs)
-        if preference_answer:
-            state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state)
-            self._chat_log(f"branch=preference_followup_answer | next_state={state.model_dump()}")
-            return self._build_chat_result(preference_answer, filtered_products, state, parsed_query)
+            preference_answer = self._build_preference_followup_answer(answer_query, final_docs)
+            if preference_answer:
+                state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state, final_product_ids)
+                self._chat_log(f"branch=preference_followup_answer | next_state={state.model_dump()}")
+                return self._build_chat_result(preference_answer, filtered_products, state, parsed_query)
 
-        size_answer = self._build_size_answer(answer_query, final_docs)
-        if size_answer:
-            state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state)
-            self._chat_log(f"branch=size_answer | next_state={state.model_dump()}")
-            return self._build_chat_result(size_answer, filtered_products, state, parsed_query)
+            size_answer = self._build_size_answer(answer_query, final_docs)
+            if size_answer:
+                state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state, final_product_ids)
+                self._chat_log(f"branch=size_answer | next_state={state.model_dump()}")
+                return self._build_chat_result(size_answer, filtered_products, state, parsed_query)
 
-        color_answer = self._build_color_answer(answer_query, final_docs)
-        if color_answer:
-            state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state)
-            self._chat_log(f"branch=color_answer | next_state={state.model_dump()}")
-            return self._build_chat_result(color_answer, filtered_products, state, parsed_query)
+            color_answer = self._build_color_answer(answer_query, final_docs)
+            if color_answer:
+                state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state, final_product_ids)
+                self._chat_log(f"branch=color_answer | next_state={state.model_dump()}")
+                return self._build_chat_result(color_answer, filtered_products, state, parsed_query)
 
         # 4. Generation
         t2 = time.time()
@@ -2075,7 +2590,7 @@ class RagService:
             answer = "Hệ thống đang bận, vui lòng thử lại sau ít phút."
 
         print(f"🤖 Generation: {time.time() - t2:.2f}s")
-        state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state)
+        state = self._build_state_from_meta(parsed_query, self._resolve_doc_metadata(final_docs[0]), session_state, final_product_ids)
         self._chat_log(f"branch=generation | next_state={state.model_dump()}")
         return self._build_chat_result(answer, filtered_products, state, parsed_query)
     
