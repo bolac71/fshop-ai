@@ -133,6 +133,7 @@ COLLECTION_POLICIES = _env("COLLECTION_POLICIES", "fashion_policies")
 
 # --- VIRTUAL TRY-ON ---
 VTON_SPACE_ID = _env("VTON_SPACE_ID", "hysts-duplicates/IDM-VTON")
+OOTD_SPACE_ID = _env("OOTD_SPACE_ID", "eduardo4547/OOTDiffusion")
 HF_TOKEN = _env("HF_TOKEN", "")
 
 

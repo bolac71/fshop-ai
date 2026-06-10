@@ -26,6 +26,7 @@ from app.services.text_preprocessor import TextPreprocessor
 from app.services.phobert_service import PhoBERTModerationService
 from app.services.moderation_engine import ModerationEngine
 from app.services.vton_service import VtonService
+from app.services.ootd_service import OotdService
 
 # --- GLOBAL VARIABLES ---
 qdrant_client = None
@@ -37,6 +38,7 @@ text_preprocessor = TextPreprocessor()
 phobert_service = PhoBERTModerationService()
 moderation_engine = ModerationEngine()
 vton_service = VtonService()
+ootd_service = OotdService()
 
 # --- LIFESPAN MANAGER ---
 @asynccontextmanager
@@ -374,6 +376,37 @@ async def virtual_tryon(
     except Exception as e:
         print(f"❌ VTO error: {e}")
         raise HTTPException(status_code=500, detail=f"Virtual try-on failed: {e}")
+
+
+@app.post("/tryon/ootd")
+async def virtual_tryon_ootd(
+    person_image: UploadFile = File(...),
+    garment_image: UploadFile = File(...),
+    garment_category: str = Form(default="Upper-body"),
+    n_steps: int = Form(default=20),
+    image_scale: float = Form(default=2.0),
+    seed: int = Form(default=-1),
+):
+    print(f"👗 OOTD request: garment_category={garment_category!r}, steps={n_steps}")
+    try:
+        person_bytes = await person_image.read()
+        garment_bytes = await garment_image.read()
+
+        result_bytes = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: ootd_service.tryon(
+                person_bytes,
+                garment_bytes,
+                garment_category,
+                n_steps,
+                image_scale,
+                seed,
+            ),
+        )
+        return Response(content=result_bytes, media_type="image/jpeg")
+    except Exception as e:
+        print(f"❌ OOTD error: {e}")
+        raise HTTPException(status_code=500, detail=f"OOTDiffusion try-on failed: {e}")
 
 
 if __name__ == "__main__":
