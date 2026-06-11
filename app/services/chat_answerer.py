@@ -30,6 +30,7 @@ class ChatAnswerer:
             4. Với product_advice, tư vấn dựa trên sản phẩm trong context, nói rõ nếu chỉ là gợi ý tham khảo.
             5. Với compare_products, so sánh theo nhu cầu của khách và chốt lựa chọn phù hợp nhất nếu đủ dữ liệu.
             6. Không bịa tồn kho, size, màu, giá hoặc chính sách không có trong context.
+            7. For product_advice, focus only on the selected/current product. Do not recommend other products unless the customer explicitly asks for alternatives.
             """
         )
 

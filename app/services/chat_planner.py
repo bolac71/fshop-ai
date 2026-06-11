@@ -165,6 +165,17 @@ class ChatPlanner:
                 reason="comparison guard",
                 source="guard",
             )
+        if "san pham khach dinh kem de hoi" in q or (
+            state.active_product_id and any(term in q for term in ["tu van", "tu van rieng", "san pham da chon", "dang xem"])
+        ):
+            return ChatPlan(
+                task="product_advice",
+                uses_previous_context=True,
+                reference=ReferenceSpec(type="active_product", product_id=state.active_product_id),
+                confidence=0.94,
+                reason="attached product advice guard",
+                source="guard",
+            )
         if self._is_new_recommendation(q) or self._has_product_discovery_signal(q):
             search = SearchConstraints(query=question)
             prefs = UserPreferences()
